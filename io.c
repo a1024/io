@@ -350,7 +350,7 @@ static int			format_utf8_message(const char *title, const char *format, char *ar
 	g_wbuf[len+len2]='\0';
 	return len;
 }
-void				messagebox(MessageBoxType type, const char *title, const char *format, ...)//returns index of pressed button
+int					messagebox(MessageBoxType type, const char *title, const char *format, ...)//returns index of pressed button
 {
 	int len=format_utf8_message(title, format, (char*)(&format+1));
 	int wintypes[]={MB_OK, MB_OKCANCEL, MB_YESNOCANCEL};
@@ -964,7 +964,7 @@ int __stdcall		WinMain(HINSTANCE hInstance, HINSTANCE hPrev, char *pCmdLine, int
 	init_math_constants();
 
 	short success=RegisterClassExA(&wndClassEx);	SYS_ASSERT(success);
-	ghWnd=CreateWindowExA(WS_EX_ACCEPTFILES, wndClassEx.lpszClassName, PROGRAMTITLE, WS_CAPTION|WS_SYSMENU|WS_THICKFRAME|WS_MINIMIZEBOX|WS_MAXIMIZEBOX|WS_CLIPCHILDREN, CW_USEDEFAULT, 0, CW_USEDEFAULT, 0, 0, 0, hInstance, 0);	SYS_ASSERT(ghWnd);//2022-06-11
+	ghWnd=CreateWindowExA(WS_EX_ACCEPTFILES, wndClassEx.lpszClassName, "", WS_CAPTION|WS_SYSMENU|WS_THICKFRAME|WS_MINIMIZEBOX|WS_MAXIMIZEBOX|WS_CLIPCHILDREN, CW_USEDEFAULT, 0, CW_USEDEFAULT, 0, 0, 0, hInstance, 0);	SYS_ASSERT(ghWnd);//2022-06-11
 
 	GetClientRect(ghWnd, &R);
 	w=R.right-R.left, h=R.bottom-R.top;

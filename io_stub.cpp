@@ -81,9 +81,9 @@ void io_render()
 		return;
 
 	for(int k=0;k<h;k+=2)
-		draw_line(w>>1, k, w*3>>2, k, 0xFFFF00FF);
-	draw_ellipse(0, w>>2, 0, h>>2, 0xFF0000FF);
-	draw_ellipse(w>>2, w>>1, h>>2, h>>1, 0xFFFF0000);
+		draw_line((float)(w>>1), (float)k, (float)(w*3>>2), (float)k, 0xFFFF00FF);
+	draw_ellipse(0, (float)(w>>2), 0, (float)(h>>2), 0xFF0000FF);
+	draw_ellipse((float)(w>>2), (float)(w>>1), (float)(h>>2), (float)(h>>1), 0xFFFF0000);
 	for(int k=0;k<1;++k)
 	{
 		int color=0xFF000000|rand()<<15|rand();

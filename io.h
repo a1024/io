@@ -91,12 +91,19 @@ typedef const char *DebugInfo;
 #else
 typedef size_t DebugInfo;
 #endif
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable:4200)
+#endif
 typedef struct ArrayHeaderStruct
 {
 	size_t count, esize, cap;//cap is in bytes
 	DebugInfo debug_info;
 	unsigned char data[];
 } ArrayHeader, *ArrayHandle;
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
 ArrayHandle		array_construct(const void *src, size_t esize, size_t count, size_t rep, size_t pad, DebugInfo debug_info);
 ArrayHandle		array_copy(ArrayHandle *arr, DebugInfo debug_info);//shallow
 void			array_free(ArrayHandle *arr);
