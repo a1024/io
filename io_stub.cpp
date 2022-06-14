@@ -1,12 +1,16 @@
 #include"io.h"
-#ifdef __linux__
+#ifdef _MSC_VER
+#include<Windows.h>
+#else
 #define GL_GLEXT_PROTOTYPES
 #endif
-#include<Windows.h>
 #include<GL/gl.h>
 #include<stdio.h>
+#include<stdlib.h>
 int io_init(int argc, char **argv)//return false to abort
 {
+	set_window_title("IO Test");
+	glClearColor(0, 0, 0, 1);
 	return true;
 }
 void io_resize()
@@ -56,7 +60,7 @@ int io_keyup(IOKey key, char c)
 			timer_stop();
 		break;
 	}
-	return true;
+	return false;
 }
 void io_timer()
 {
@@ -64,21 +68,29 @@ void io_timer()
 void io_render()
 {
 	prof_add("entry");
-	static float level=0, delta=0.01f;
+/*	static float level=0, delta=0.01f;
 	glClearColor(level, level, level, 1);
 	level+=delta;
 	if(level>1)
 		level=1, delta=-0.01f;
 	else if(level<0)
-		level=0, delta=0.01f;
+		level=0, delta=0.01f;//*/
 	glClear(GL_COLOR_BUFFER_BIT);
 
 	if(!h)
 		return;
 
-	for(int k=0;k<100;++k)
-		draw_ellipse((float)(rand()%w), (float)(rand()%w), (float)(rand()%h), (float)(rand()%h), 0xFF000000|rand()<<15|rand());
-		//draw_line_i(rand()%w, rand()%h, rand()%w, rand()%h, 0xFF000000|rand()<<15|rand());
+	for(int k=0;k<h;k+=2)
+		draw_line(w>>1, k, w*3>>2, k, 0xFFFF00FF);
+	draw_ellipse(0, w>>2, 0, h>>2, 0xFF0000FF);
+	draw_ellipse(w>>2, w>>1, h>>2, h>>1, 0xFFFF0000);
+	for(int k=0;k<1;++k)
+	{
+		int color=0xFF000000|rand()<<15|rand();
+		draw_rectangle_hollow((float)(rand()%w), (float)(rand()%w), (float)(rand()%h), (float)(rand()%h), color);
+		draw_ellipse((float)(rand()%w), (float)(rand()%w), (float)(rand()%h), (float)(rand()%h), color);
+	}
+	draw_line_i(rand()%w, rand()%h, rand()%w, rand()%h, 0xFF000000|rand()<<15|rand());
 	prof_add("draw");
 }
 int io_quit_request()//return 1 to exit

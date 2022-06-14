@@ -27,9 +27,6 @@ extern "C"
 #include<stddef.h>//for size_t
 
 
-#define		PROGRAMTITLE	"IO Test"
-
-
 //globals
 extern int
 	w, h,	//window dimensions
@@ -98,21 +95,7 @@ typedef struct ArrayHeaderStruct
 {
 	size_t count, esize, cap;//cap is in bytes
 	DebugInfo debug_info;
-	union
-	{
-		unsigned char data[];
-
-		char str[];
-	//	char i8data[];
-	//	unsigned short u16data[];
-	//	short i16data[];
-	//	unsigned u32data[];
-		int i32data[];
-	//	unsigned long long u64data[];
-	//	long long i64data[];
-	//	float f32data[];
-		double fdata[];
-	};
+	unsigned char data[];
 } ArrayHeader, *ArrayHandle;
 ArrayHandle		array_construct(const void *src, size_t esize, size_t count, size_t rep, size_t pad, DebugInfo debug_info);
 ArrayHandle		array_copy(ArrayHandle *arr, DebugInfo debug_info);//shallow
@@ -437,9 +420,13 @@ const char
 double		time_ms();
 void		set_window_title(const char *format, ...);
 
-void		messagebox(const char *title, const char *format, ...);
-int			messagebox_okcancel(const char *title, const char *format, ...);//returns 0: OK, 1: cancel
-int			messagebox_yesnocancel(const char *title, const char *format, ...);//returns 0: yes, 1: no, 2: cancel
+typedef enum MessageBoxTypeEnum
+{
+	MBOX_OK,
+	MBOX_OKCANCEL,
+	MBOX_YESNOCANCEL,
+} MessageBoxType;
+int			messagebox(MessageBoxType type, const char *title, const char *format, ...);//returns index of pressed button
 
 void		copy_to_clipboard_c(const char *a, int size);
 char*		paste_from_clipboard(int loud, int *ret_len);//don't forget to free memory

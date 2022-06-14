@@ -23,6 +23,12 @@
 #include			<tmmintrin.h>
 #define				STB_IMAGE_IMPLEMENTATION
 #include			"stb_image.h"
+#ifdef _MSC_VER
+#define		HUGE_VAL	_HUGE
+#else
+#define		sprintf_s	snprintf
+#define		vsprintf_s	vsnprintf
+#endif
 
 int					w=0, h=0, mx=0, my=0;
 char				timer=0, keyboard[256]={0};
@@ -40,6 +46,7 @@ int					rx0=0, ry0=0, rdx=0, rdy=0;//current OpenGL region
 float
 	SN_x0=0, SN_x1=0, SN_y0=0, SN_y1=0,//screen-NDC conversion
 	NS_x0=0, NS_x1=0, NS_y0=0, NS_y1=0;
+extern unsigned		vertex_buffer;
 
 //text globals
 char				sdf_available=0, sdf_active=0;
@@ -76,7 +83,7 @@ static void			init_math_constants()
 	_pi=acosf(-1.f), _2pi=2*_pi, pi_2=_pi*0.5f, inv_2pi=1/_2pi;
 	sqrt2=sqrtf(2.f);
 	torad=_pi/180, todeg=180/_pi;
-	infinity=(float)_HUGE;
+	infinity=(float)HUGE_VAL;
 	inv255=1.f/255;
 }
 
@@ -109,7 +116,7 @@ SHADER_LIST
 SHADER_LIST
 #undef		SHADER
 
-void				init_gl();
+int					init_gl();//returns 0 on error to exit application
 void				memswap(void *p1, void *p2, size_t size)
 {
 	unsigned char *s1=(unsigned char*)p1, *s2=(unsigned char*)p2, *end=s1+size;
@@ -196,7 +203,7 @@ int					log_error(const char *file, int line, const char *format, ...)
 
 	if(firsttime)
 		memcpy(first_error_msg, latest_error_msg, printed+1);
-	messagebox("Error", latest_error_msg);
+	messagebox(MBOX_OK, "Error", latest_error_msg);
 	return firsttime;
 }
 int					valid(const void *p)
@@ -214,13 +221,19 @@ int					valid(const void *p)
 	}
 	return 1;
 }
+const char*			glerr2str(int error);
+void 				gl_check(const char *file, int line);
+void				gl_error(const char *file, int line);
+#define				GL_CHECK()		gl_check(file, __LINE__)
+#define				GL_ERROR()		gl_error(file, __LINE__)
+
 void				console_pause()
 {
 	char c=0;
-	scanf_s("%c", &c);
+	scanf("%c", &c);
 }
 
-#if defined _MSC_VER|| defined _WIN32 || defined _WINDOWS
+#if defined _MSC_VER || defined _WIN32 || defined _WINDOWS
 #include			<Windows.h>
 #include			<Windowsx.h>//for GET_X_LPARAM
 #include			<GL/gl.h>
@@ -327,41 +340,6 @@ int					sys_check(const char *file, int line, const char *info)
 }
 #define				SYS_ASSERT(SUCCESS)		((void)((SUCCESS)!=0||sys_check(file, __LINE__, 0)))
 
-const char*			glerr2str(int error)
-{
-#define 			EC(x)	case x:a=(const char*)#x;break
-	const char *a=0;
-	switch(error)
-	{
-	case 0:a="SUCCESS";break;
-	EC(GL_INVALID_ENUM);
-	EC(GL_INVALID_VALUE);
-	EC(GL_INVALID_OPERATION);
-	case 0x0503:a="GL_STACK_OVERFLOW";break;
-	case 0x0504:a="GL_STACK_UNDERFLOW";break;
-	EC(GL_OUT_OF_MEMORY);
-	case 0x0506:a="GL_INVALID_FRAMEBUFFER_OPERATION";break;
-	case 0x0507:a="GL_CONTEXT_LOST";break;
-	case 0x8031:a="GL_TABLE_TOO_LARGE";break;
-	default:a="???";break;
-	}
-	return a;
-#undef				EC
-}
-void 				gl_check(const char *file, int line)
-{
-	int err=glGetError();
-	if(err)
-		log_error(file, line, "GL %d: %s", err, glerr2str(err));
-}
-void				gl_error(const char *file, int line)
-{
-	int err=glGetError();
-	log_error(file, line, "GL %d: %s", err, glerr2str(err));
-}
-#define				GL_CHECK()		gl_check(file, __LINE__)
-#define				GL_ERROR()		gl_error(file, __LINE__)
-
 static int			format_utf8_message(const char *title, const char *format, char *args)//returns idx of title in g_wbuf
 {
 	int len=vsprintf_s(g_buf, g_buf_size, format, args);
@@ -372,11 +350,39 @@ static int			format_utf8_message(const char *title, const char *format, char *ar
 	g_wbuf[len+len2]='\0';
 	return len;
 }
-void				messagebox(const char *title, const char *format, ...)
+void				messagebox(MessageBoxType type, const char *title, const char *format, ...)//returns index of pressed button
 {
 	int len=format_utf8_message(title, format, (char*)(&format+1));
-	MessageBoxW(ghWnd, g_wbuf, g_wbuf+len, MB_OK);
+	int wintypes[]={MB_OK, MB_OKCANCEL, MB_YESNOCANCEL};
+	int result=MessageBoxW(ghWnd, g_wbuf, g_wbuf+len, wintypes[type]);
+	switch(type)
+	{
+	case MBOX_OK:result=0;
+	case MBOX_OKCANCEL:
+		switch(result)
+		{
+		case IDOK:
+			result=1;
+			break;
+		case IDCANCEL:
+		default:
+			result=1;
+			break;
+		}
+		break;
+	case MBOX_YESNOCANCEL:
+		switch(result)
+		{
+		case IDYES:		result=0;	break;
+		case IDNO:		result=1;	break;
+		default:
+		case IDCANCEL:	result=2;	break;
+		}
+		break;
+	}
+	return result;
 }
+#if 0
 int					messagebox_okcancel(const char *title, const char *format, ...)
 {
 	int len=format_utf8_message(title, format, (char*)(&format+1));
@@ -407,6 +413,7 @@ int					messagebox_yesnocancel(const char *title, const char *format, ...)
 	}
 	return 2;
 }
+#endif
 
 void				copy_to_clipboard_c(const char *a, int size)//size not including null terminator
 {
@@ -426,7 +433,7 @@ char*				paste_from_clipboard(int loud, int *ret_len)
 	{
 		CloseClipboard();
 		if(loud)
-			messagebox("Error", "Failed to paste from clipboard");
+			messagebox(MBOX_OK, "Error", "Failed to paste from clipboard");
 		return 0;
 	}
 	int len0=strlen(a);
@@ -1028,9 +1035,10 @@ int __stdcall		WinMain(HINSTANCE hInstance, HINSTANCE hPrev, char *pCmdLine, int
 #pragma warning(pop)
 #endif
 	if(error_fatal)
-		exit(EXIT_FAILURE);
+		return EXIT_FAILURE;
 	
-	init_gl();
+	if(!init_gl())
+		return EXIT_FAILURE;
 
 	if(!io_init(__argc-1, __argv+1))
 		return EXIT_FAILURE;
@@ -1065,6 +1073,8 @@ int __stdcall		WinMain(HINSTANCE hInstance, HINSTANCE hPrev, char *pCmdLine, int
 #include<X11/Xutil.h>
 #include<X11/keysymdef.h>
 
+#include<gtk/gtk.h>
+
 #define GL_GLEXT_PROTOTYPES
 #include<GL/gl.h>
 #include<GL/glx.h>
@@ -1074,9 +1084,157 @@ int __stdcall		WinMain(HINSTANCE hInstance, HINSTANCE hPrev, char *pCmdLine, int
 #include<unistd.h>
 #include<errno.h>
 #include<x86intrin.h>
+const char file[]=__FILE__;
 
 #define WINDOW_WIDTH	800
 #define WINDOW_HEIGHT	600
+
+typedef struct ClipboardDataStruct
+{
+	union
+	{
+		const char *send;
+		char *receive;
+	};
+	int len;
+} ClipboardData;
+void		clipboard_callback(GtkClipboard *clipboard, const gchar *text, gpointer param)
+{
+	//https://stackoverflow.com/questions/52204996/how-do-i-use-clipboard-in-gtk
+	ClipboardData *data=(ClipboardData*)param;
+	if(data->send)//send to clipboard
+		gtk_clipboard_set_text(clipboard, data->send, data->len);
+	else//receive from clipboard
+	{
+		data->len=strlen(text);
+		data->receive=(char*)malloc(data->len+1);
+		memcpy(data->receive, text, data->len+1);
+	}
+	gtk_main_quit();
+}
+void		copy_to_clipboard_c(const char *str, int len)
+{
+	//https://stackoverflow.com/questions/52204996/how-do-i-use-clipboard-in-gtk
+	ClipboardData data={{str}, len};
+	GtkClipboard *clipboard=gtk_clipboard_get(GDK_SELECTION_CLIPBOARD);
+	gtk_clipboard_request_text(clipboard, clipboard_callback, &data);
+	gtk_main();
+}
+char*		paste_from_clipboard(int loud, int *ret_len)//don't forget to free memory
+{
+	//https://stackoverflow.com/questions/52204996/how-do-i-use-clipboard-in-gtk
+	ClipboardData data={0};
+	GtkClipboard *clipboard=gtk_clipboard_get(GDK_SELECTION_CLIPBOARD);
+	gtk_clipboard_request_text(clipboard, clipboard_callback, &data);
+	gtk_main();
+	if(ret_len)
+		*ret_len=data.len;
+	return data.receive;
+}
+typedef struct DialogDataStruct
+{
+	int type, result;
+} DialogData;
+static gboolean display_dialog(gpointer user_data)
+{
+	DialogData *dialog_data=(DialogData*)user_data;
+	GtkWidget *dialog;
+
+	GtkButtonsType buttons=GTK_BUTTONS_NONE;
+	switch(dialog_data->type)
+	{
+	case MBOX_OK:
+		buttons=GTK_BUTTONS_OK;
+		break;
+	case MBOX_OKCANCEL:
+		buttons=GTK_BUTTONS_OK_CANCEL;
+		break;
+	case MBOX_YESNOCANCEL:
+		buttons=GTK_BUTTONS_YES_NO;
+		break;
+	}
+	dialog=gtk_message_dialog_new(0, GTK_DIALOG_MODAL, GTK_MESSAGE_INFO, buttons, "%s", g_buf);
+	
+	// Set title, etc.
+
+	dialog_data->result=gtk_dialog_run((GtkDialog*)dialog);
+	gtk_widget_destroy(dialog);
+
+	gtk_main_quit();
+	return 0;
+}
+int		messagebox(MessageBoxType type, const char *title, const char *format, ...)
+{
+	va_list args;
+	va_start(args, format);
+	int len=vsnprintf(g_buf, g_buf_size, format, args);
+	va_end(args);
+
+	DialogData dialog_data={type, 0};
+	g_idle_add(display_dialog, &dialog_data);
+	gtk_main();
+	return dialog_data.result;
+#if 0
+	Window hWnd2=XCreateSimpleWindow(display, RootWindow(display, screenId), 0, 0, 800, 100, 1, BlackPixel(display, screenId), WhitePixel(display, screenId));
+	XStoreName(display, hWnd2, title);
+	XSelectInput(display, hWnd2, ExposureMask|PointerMotionMask|ButtonPressMask|ButtonReleaseMask);
+	XMapWindow(display, hWnd2);
+	Atom WM_DELETE_WINDOW = XInternAtom(display, "WM_DELETE_WINDOW", False);
+	XSetWMProtocols(display, hWnd2, &WM_DELETE_WINDOW, 1);
+	int success=glXMakeCurrent(display, hWnd2, context);
+	if(!success)
+		return;
+	XClearWindow(display, hWnd2);
+	XMapRaised(display, hWnd2);
+	int result=0;
+	for(;;)//message loop
+	{
+		XEvent event;
+		KeySym key;
+		XNextEvent(display, &event);
+		switch(event.type)
+		{
+		case KeyPress:
+			{
+				XLookupString(&event.xkey, g_buf, g_buf_size, &key, 0);
+				char mask=0, c=0;
+				IOKey k=translate_key(key, &mask, &c);
+				result=io_keydn(k, c);
+				keyboard[k]|=mask;
+			}
+			break;
+		case KeyRelease:
+			{
+				XLookupString(&event.xkey, g_buf, g_buf_size, &key, 0);
+				char mask=0, c=0;
+				IOKey k=translate_key(key, &mask, &c);
+				result=io_keyup(k, c);
+				keyboard[k]&=~mask;
+			}
+			break;
+		case ButtonPress:
+			result=io_keydn((IOKey)event.xbutton.button, 0);
+			break;
+		case ButtonRelease:
+			result=io_keyup((IOKey)event.xbutton.button, 0);
+			break;
+		case MotionNotify:
+			mx=event.xmotion.x, my=event.xmotion.y;
+			result=io_mousemove();
+			break;
+		}
+
+		if(result==2)
+			break;
+		if(timer||result)
+		{
+			io_render();
+			prof_print();
+			glXSwapBuffers(display, window);
+		}
+	}
+#endif
+}
 
 double	time_ms()
 {
@@ -1094,6 +1252,7 @@ Window	window;
 Screen	*screen=0;
 int		screenId=0;
 Atom	atomWmDeleteWindow;
+GLXContext context=0;
 void	set_window_title(const char *format, ...)
 {
 	va_list args;
@@ -1101,6 +1260,14 @@ void	set_window_title(const char *format, ...)
 	vsnprintf(g_buf, g_buf_size, format, args);
 	va_end(args);
 	int ret=XStoreName(display, window, g_buf);
+}
+void				timer_start()
+{
+	timer=1;
+}
+void				timer_stop()
+{
+	timer=0;
 }
 typedef enum EventResultEnum
 {
@@ -1132,7 +1299,7 @@ const char translate_ASCII[128]=
 //	 p    q    r    s    t    u    v    w    x    y    z    {     |    }    ~   del
 	'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', '[', '\\', ']', '`', '\0',//7
 };
-IOKey		translate_key(KeySym key, char *mask, char *c)
+IOKey	translate_key(KeySym key, char *mask, char *c)
 {
 	*mask=1;
 	if(!(key>>7))
@@ -1270,7 +1437,8 @@ int		process_event()
 		result=io_keyup((IOKey)event.xbutton.button, 0);
 		break;
 	case MotionNotify:
-		result=io_mousemove(event.xmotion.x, event.xmotion.y);
+		mx=event.xmotion.x, my=event.xmotion.y;
+		result=io_mousemove();
 		break;
 	case EnterNotify:
 		printf("Enter at (%d, %d)\n", event.xcrossing.x, event.xcrossing.y);
@@ -1291,8 +1459,10 @@ int		process_event()
 		{
 			XWindowAttributes attribs;
 			XGetWindowAttributes(display, window, &attribs);
-			io_resize(attribs.width, attribs.height);
-			//Resize(attribs.width, attribs.height);
+			w=attribs.width, h=attribs.height;
+			set_region_immediate(0, w, 0, h);
+			io_resize();
+			result=RESULT_REDRAW;
 		}
 		break;
 	case GraphicsExpose:
@@ -1375,6 +1545,7 @@ int		process_event()
 }
 int		main(int argc, char** argv)
 {
+	gtk_init(&argc, &argv);
 	init_math_constants();
 
 	int len=strlen(argv[0]);
@@ -1386,7 +1557,7 @@ int		main(int argc, char** argv)
 	exe_dir[k]='\0';
 
 	//Open the display
-	display=XOpenDisplay(NULL);
+	display=XOpenDisplay(0);
 	if(!display)
 	{
 		printf("Could not open display\n");
@@ -1469,7 +1640,6 @@ int		main(int argc, char** argv)
 		printf("screenId(%d) does not match visual->screen(%d).\n", screenId, visual->screen);
 		XCloseDisplay(display);
 		return 1;
-
 	}
 
 	//Open the window
@@ -1485,7 +1655,7 @@ int		main(int argc, char** argv)
 		|ButtonPressMask|ButtonReleaseMask
 		|PointerMotionMask|EnterWindowMask|LeaveWindowMask
 		;
-	window=XCreateWindow(display, RootWindow(display, screenId), 0, 0, WINDOW_WIDTH, WINDOW_HEIGHT, 0, visual->depth, InputOutput, visual->visual, CWBackPixel | CWColormap | CWBorderPixel | CWEventMask, &windowAttribs);
+	window=XCreateWindow(display, RootWindow(display, screenId), 0, 0, w=WINDOW_WIDTH, h=WINDOW_HEIGHT, 0, visual->depth, InputOutput, visual->visual, CWBackPixel | CWColormap | CWBorderPixel | CWEventMask, &windowAttribs);
 
 	//XStoreName(display, window, "IO Test");
 	//XSetStandardProperties(display, window, "IO Test", "What is this", None, argv, argc, 0);
@@ -1500,13 +1670,12 @@ int		main(int argc, char** argv)
 	
 	int context_attribs[]=
 	{
-		GLX_CONTEXT_MAJOR_VERSION_ARB, 3,
-		GLX_CONTEXT_MINOR_VERSION_ARB, 2,
-		GLX_CONTEXT_FLAGS_ARB, GLX_CONTEXT_FORWARD_COMPATIBLE_BIT_ARB,
+	//	GLX_CONTEXT_MAJOR_VERSION_ARB, 3,
+	//	GLX_CONTEXT_MINOR_VERSION_ARB, 2,
+	//	GLX_CONTEXT_FLAGS_ARB, GLX_CONTEXT_FORWARD_COMPATIBLE_BIT_ARB,
 		None
 	};
 
-	GLXContext context=0;
 	const char *glxExts=glXQueryExtensionsString(display, screenId);
 	if(!isExtensionSupported( glxExts, "GLX_ARB_create_context"))
 	{
@@ -1527,9 +1696,7 @@ int		main(int argc, char** argv)
 	printf("GL Version: %s\n", glGetString(GL_VERSION));
 	printf("GLSL Version: %s\n", glGetString(GL_SHADING_LANGUAGE_VERSION));
 	
-	init_gl();
-
-	if(!io_init(argc, argv, WINDOW_WIDTH, WINDOW_HEIGHT))
+	if(!init_gl()||!io_init(argc, argv))
 	{
 		glXDestroyContext(display, context);
 		XFree(visual);
@@ -1551,7 +1718,11 @@ int		main(int argc, char** argv)
 				signal=process_event();
 		}
 		else
-			signal=process_event();
+		{
+			do
+				signal=process_event();
+			while(XPending(display));
+		}
 
 		if(signal==2)
 			break;
@@ -1818,6 +1989,40 @@ void				prof_print()
 }
 #endif
 
+//OpenGL
+const char*			glerr2str(int error)
+{
+#define 			EC(x)	case x:a=(const char*)#x;break
+	const char *a=0;
+	switch(error)
+	{
+	case 0:a="SUCCESS";break;
+	EC(GL_INVALID_ENUM);
+	EC(GL_INVALID_VALUE);
+	EC(GL_INVALID_OPERATION);
+	case 0x0503:a="GL_STACK_OVERFLOW";break;
+	case 0x0504:a="GL_STACK_UNDERFLOW";break;
+	EC(GL_OUT_OF_MEMORY);
+	case 0x0506:a="GL_INVALID_FRAMEBUFFER_OPERATION";break;
+	case 0x0507:a="GL_CONTEXT_LOST";break;
+	case 0x8031:a="GL_TABLE_TOO_LARGE";break;
+	default:a="???";break;
+	}
+	return a;
+#undef				EC
+}
+void 				gl_check(const char *file, int line)
+{
+	int err=glGetError();
+	if(err)
+		log_error(file, line, "GL %d: %s", err, glerr2str(err));
+}
+void				gl_error(const char *file, int line)
+{
+	int err=glGetError();
+	log_error(file, line, "GL %d: %s", err, glerr2str(err));
+}
+
 //shader API
 unsigned			CompileShader(const char *src, unsigned type, const char *programname)
 {
@@ -1957,19 +2162,32 @@ void				set_region_immediate(int x1, int x2, int y1, int y2)
 	rx0=x1, ry0=y1, rdx=x2-x1, rdy=y2-y1;
 	glViewport(rx0, h-y2, rdx, rdy);
 
-	SN_x1=2.f/rdx, SN_x0=-rx0*SN_x1-1;
-	SN_y1=-2.f/rdy, SN_y0=1-ry0*SN_y1;
+	SN_x1=2.f/rdx, SN_x0=(float)(-2*rx0-(rdx-1))/rdx;//frac bias
+	SN_y1=-2.f/rdy, SN_y0=(float)(rdy-1+2*ry0)/rdy;
+
+	//SN_x1=2.f/rdx, SN_x0=-rx0*SN_x1-(float)(rdx-1)/rdx;//frac bias
+	//SN_y1=-2.f/rdy, SN_y0=(float)(rdy-1)/rdy-ry0*SN_y1;
+
+	//SN_x1=2.f/(rdx-(rdx!=0)), SN_x0=-rx0*SN_x1-1;//X vernier lines
+	//SN_y1=-2.f/(rdy-(rdy!=0)), SN_y0=1-ry0*SN_y1;
+
+	//SN_x1=2.f/rdx, SN_x0=-rx0*SN_x1-1;//X old equation
+	//SN_y1=-2.f/rdy, SN_y0=1-ry0*SN_y1;
+
 
 	NS_x1=rdx/2.f, NS_x0=rx0+NS_x1;
 	NS_y1=-rdy/2.f, NS_y0=ry0-NS_x1;
 }
-void				init_gl()
+int					init_gl()
 {
+	glGenBuffers(1, &vertex_buffer);
 	glEnable(GL_BLEND);									GL_CHECK();//vast majority of applications need alpha blend
 	glBlendEquation(GL_FUNC_ADD);						GL_CHECK();
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);	GL_CHECK();
+	//glDisable(GL_BLEND);	GL_CHECK();
+	glDisable(GL_LINE_SMOOTH);	GL_CHECK();
 
-#define	SHADER(NAME)	if(!make_gl_program(&shader_##NAME))exit(0);
+#define	SHADER(NAME)	if(!make_gl_program(&shader_##NAME))return 0;
 	SHADER_LIST
 #undef	SHADER
 	
@@ -2039,11 +2257,12 @@ void				init_gl()
 	toggle_sdftext();
 	prof_add("Load font");
 #endif
+	return 1;
 }
 
 //immediate drawing functions
 float				g_fbuf[16]={0};
-//unsigned			vertex_buffer=0;
+unsigned			vertex_buffer=0;
 void				draw_line(float x1, float y1, float x2, float y2, int color)
 {
 	g_fbuf[0]=screen2NDC_x(x1), g_fbuf[1]=screen2NDC_y(y1);
@@ -2051,14 +2270,15 @@ void				draw_line(float x1, float y1, float x2, float y2, int color)
 	setGLProgram(shader_2D.program);		GL_CHECK();
 	send_color(u_2D_color, color);			GL_CHECK();
 
-//	glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);							GL_CHECK();
-//	glBufferData(GL_ARRAY_BUFFER, 4*sizeof(float), g_fbuf, GL_STATIC_DRAW);	GL_CHECK();
-//	glVertexAttribPointer(a_2D_coords, 2, GL_FLOAT, GL_FALSE, 0, 0);		GL_CHECK();
-	
-	glBindBuffer(GL_ARRAY_BUFFER, 0);										GL_CHECK();
-	glVertexAttribPointer(a_2D_coords, 2, GL_FLOAT, GL_FALSE, 0, g_fbuf);	GL_CHECK();
-	
 	glEnableVertexAttribArray(a_2D_coords);	GL_CHECK();
+
+	glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);							GL_CHECK();
+	glBufferData(GL_ARRAY_BUFFER, 4*sizeof(float), g_fbuf, GL_STATIC_DRAW);	GL_CHECK();
+	glVertexAttribPointer(a_2D_coords, 2, GL_FLOAT, GL_FALSE, 0, 0);		GL_CHECK();
+	
+//	glBindBuffer(GL_ARRAY_BUFFER, 0);										GL_CHECK();
+//	glVertexAttribPointer(a_2D_coords, 2, GL_FLOAT, GL_FALSE, 0, g_fbuf);	GL_CHECK();
+	
 	glDrawArrays(GL_LINES, 0, 2);			GL_CHECK();
 	glDisableVertexAttribArray(a_2D_coords);GL_CHECK();
 }
@@ -2066,8 +2286,8 @@ void				draw_line_i(int x1, int y1, int x2, int y2, int color){draw_line((float)
 void				draw_rectangle(float x1, float x2, float y1, float y2, int color)
 {
 	float
-		X1=screen2NDC_x(x1), Y1=screen2NDC_y(y1),
-		X2=screen2NDC_x(x2), Y2=screen2NDC_y(y2);
+		X1=screen2NDC_x_bias(x1), Y1=screen2NDC_y_bias(y1),
+		X2=screen2NDC_x_bias(x2), Y2=screen2NDC_y_bias(y2);
 	g_fbuf[0]=X1, g_fbuf[1]=Y1;
 	g_fbuf[2]=X2, g_fbuf[3]=Y1;
 	g_fbuf[4]=X2, g_fbuf[5]=Y2;
@@ -2076,14 +2296,15 @@ void				draw_rectangle(float x1, float x2, float y1, float y2, int color)
 	setGLProgram(shader_2D.program);		GL_CHECK();
 	send_color(u_2D_color, color);			GL_CHECK();
 
-//	glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);								GL_CHECK();
-//	glBufferData(GL_ARRAY_BUFFER, 10*sizeof(float), g_fbuf, GL_STATIC_DRAW);	GL_CHECK();
-//	glVertexAttribPointer(ns_2d::a_coords, 2, GL_FLOAT, GL_FALSE, 0, 0);		GL_CHECK();
-	
-	glBindBuffer(GL_ARRAY_BUFFER, 0);										GL_CHECK();
-	glVertexAttribPointer(a_2D_coords, 2, GL_FLOAT, GL_FALSE, 0, g_fbuf);	GL_CHECK();
-	
 	glEnableVertexAttribArray(a_2D_coords);	GL_CHECK();
+
+	glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);							GL_CHECK();
+	glBufferData(GL_ARRAY_BUFFER, 10*sizeof(float), g_fbuf, GL_STATIC_DRAW);GL_CHECK();
+	glVertexAttribPointer(a_2D_coords, 2, GL_FLOAT, GL_FALSE, 0, 0);		GL_CHECK();
+	
+//	glBindBuffer(GL_ARRAY_BUFFER, 0);										GL_CHECK();
+//	glVertexAttribPointer(a_2D_coords, 2, GL_FLOAT, GL_FALSE, 0, g_fbuf);	GL_CHECK();
+	
 	glDrawArrays(GL_TRIANGLE_FAN, 0, 5);	GL_CHECK();
 	glDisableVertexAttribArray(a_2D_coords);GL_CHECK();
 }
@@ -2100,16 +2321,17 @@ void				draw_rectangle_hollow(float x1, float x2, float y1, float y2, int color)
 	setGLProgram(shader_2D.program);		GL_CHECK();
 	send_color(u_2D_color, color);			GL_CHECK();
 
-//	glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);							GL_CHECK();
-//	glBufferData(GL_ARRAY_BUFFER, 8*sizeof(float), g_fbuf, GL_STATIC_DRAW);	GL_CHECK();
-//	glVertexAttribPointer(a_2D_coords, 2, GL_FLOAT, GL_FALSE, 0, 0);		GL_CHECK();
-	
-	glBindBuffer(GL_ARRAY_BUFFER, 0);										GL_CHECK();
-	glVertexAttribPointer(a_2D_coords, 2, GL_FLOAT, GL_FALSE, 0, g_fbuf);	GL_CHECK();
-	
 	glEnableVertexAttribArray(a_2D_coords);	GL_CHECK();
-	glDrawArrays(GL_LINE_LOOP, 0, 4);			GL_CHECK();
-	glDisableVertexAttribArray(a_2D_coords);	GL_CHECK();
+
+	glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);							GL_CHECK();
+	glBufferData(GL_ARRAY_BUFFER, 8*sizeof(float), g_fbuf, GL_STATIC_DRAW);	GL_CHECK();
+	glVertexAttribPointer(a_2D_coords, 2, GL_FLOAT, GL_FALSE, 0, 0);		GL_CHECK();
+	
+//	glBindBuffer(GL_ARRAY_BUFFER, 0);										GL_CHECK();
+//	glVertexAttribPointer(a_2D_coords, 2, GL_FLOAT, GL_FALSE, 0, g_fbuf);	GL_CHECK();
+	
+	glDrawArrays(GL_LINE_LOOP, 0, 4);		GL_CHECK();
+	glDisableVertexAttribArray(a_2D_coords);GL_CHECK();
 }
 
 float				*vrtx=0;
@@ -2142,32 +2364,38 @@ void				draw_ellipse(float x1, float x2, float y1, float y2, int color)
 	if(!vrtx_resize(line_count*2))
 		return;
 	float x0=(x1+x2)*0.5f, y0=(y1+y2)*0.5f, rx=fabsf(x2-x0), ry=yb-y0;
-	int vcount=0;
+	int nlines=0;
+	float ygain=2.f/line_count;
 	for(int kl=0;kl<line_count;++kl)//pixel-perfect ellipse (no anti-aliasing) drawn as horizontal lines
 	{
 		//ellipse equation: sq[(x-x0)/rx] + sq[(y-y0)/ry] = 1	->	x0 +- rx*sqrt(1 - sq[(y-y0)/ry])
 		float
-			y=(float)kl*(2.f/(line_count-1))-1,
+			y=kl*ygain-1,
 			x=1-y*y;
 		if(x<0)
 			continue;
 		x=rx*sqrtf(x);
 		y=y*ry+y0;
 
-		int idx=vcount<<2;
+		int idx=nlines<<2;
 		y=screen2NDC_y(y);
 		vrtx[idx  ]=screen2NDC_x(x0-x), vrtx[idx+1]=y;
-		vrtx[idx+2]=screen2NDC_x(x0+x), vrtx[idx+3]=y;
-		++vcount;
+		vrtx[idx+2]=screen2NDC_x(x0+x+1), vrtx[idx+3]=y;
+		++nlines;
 	}
 	setGLProgram(shader_2D.program);		GL_CHECK();
 	send_color(u_2D_color, color);			GL_CHECK();
 
-	glBindBuffer(GL_ARRAY_BUFFER, 0);		GL_CHECK();
-	glVertexAttribPointer(a_2D_coords, 2, GL_FLOAT, GL_FALSE, 0, vrtx);	GL_CHECK();
-	
 	glEnableVertexAttribArray(a_2D_coords);	GL_CHECK();
-	glDrawArrays(GL_LINES, 0, vcount*2);	GL_CHECK();
+
+	glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);								GL_CHECK();
+	glBufferData(GL_ARRAY_BUFFER, nlines*4*sizeof(float), vrtx, GL_STATIC_DRAW);GL_CHECK();
+	glVertexAttribPointer(a_2D_coords, 2, GL_FLOAT, GL_FALSE, 0, 0);			GL_CHECK();
+
+//	glBindBuffer(GL_ARRAY_BUFFER, 0);		GL_CHECK();
+//	glVertexAttribPointer(a_2D_coords, 2, GL_FLOAT, GL_FALSE, 0, vrtx);	GL_CHECK();
+	
+	glDrawArrays(GL_LINES, 0, nlines*2);	GL_CHECK();
 	glDisableVertexAttribArray(a_2D_coords);GL_CHECK();
 }
 
@@ -2282,8 +2510,13 @@ float				print_line(float tab_origin, float x, float y, float zoom, const char *
 				setGLProgram(shader_sdftext.program);
 				glUniform1f(u_sdftext_zoom, zoom*16.f/(sdf_txh*sdf_slope));
 				select_texture(sdf_atlas_txid, u_sdftext_atlas);
-				glBindBuffer(GL_ARRAY_BUFFER, 0);										GL_CHECK();
-				glVertexAttribPointer(a_sdftext_coords, 4, GL_FLOAT, GL_TRUE, 0, vrtx);	GL_CHECK();
+
+				glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);							GL_CHECK();
+				glBufferData(GL_ARRAY_BUFFER, printable_count<<6, vrtx, GL_STATIC_DRAW);GL_CHECK();
+				glVertexAttribPointer(a_sdftext_coords, 4, GL_FLOAT, GL_TRUE, 0, 0);	GL_CHECK();
+
+			//	glBindBuffer(GL_ARRAY_BUFFER, 0);										GL_CHECK();
+			//	glVertexAttribPointer(a_sdftext_coords, 4, GL_FLOAT, GL_TRUE, 0, vrtx);	GL_CHECK();
 
 				glEnableVertexAttribArray(a_sdftext_coords);	GL_CHECK();
 				glDrawArrays(GL_QUADS, 0, printable_count<<2);	GL_CHECK();
@@ -2293,8 +2526,13 @@ float				print_line(float tab_origin, float x, float y, float zoom, const char *
 			{
 				setGLProgram(shader_text.program);
 				select_texture(font_txid, u_text_atlas);
-				glBindBuffer(GL_ARRAY_BUFFER, 0);									GL_CHECK();
-				glVertexAttribPointer(a_text_coords, 4, GL_FLOAT, GL_TRUE, 0, vrtx);GL_CHECK();
+
+				glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);							GL_CHECK();
+				glBufferData(GL_ARRAY_BUFFER, printable_count<<6, vrtx, GL_STATIC_DRAW);GL_CHECK();//set vertices & texcoords
+				glVertexAttribPointer(a_text_coords, 4, GL_FLOAT, GL_TRUE, 0, 0);		GL_CHECK();
+
+			//	glBindBuffer(GL_ARRAY_BUFFER, 0);									GL_CHECK();
+			//	glVertexAttribPointer(a_text_coords, 4, GL_FLOAT, GL_TRUE, 0, vrtx);GL_CHECK();
 
 				glEnableVertexAttribArray(a_text_coords);		GL_CHECK();
 				glDrawArrays(GL_QUADS, 0, printable_count<<2);	GL_CHECK();//draw the quads: 4 vertices per character quad
