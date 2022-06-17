@@ -224,7 +224,11 @@ int					valid(const void *p)
 const char*			glerr2str(int error);
 void 				gl_check(const char *file, int line);
 void				gl_error(const char *file, int line);
+#ifdef NO_GL_CHECK
+#define				GL_CHECK()
+#else
 #define				GL_CHECK()		gl_check(file, __LINE__)
+#endif
 #define				GL_ERROR()		gl_error(file, __LINE__)
 
 void				console_pause()
@@ -496,6 +500,7 @@ void				(__stdcall *glUniform2f)(int location, float v0, float v1)=0;
 void				(__stdcall *glUniform3f)(int location, float v0, float v1, float v2)=0;
 void				(__stdcall *glUniform3fv)(int location, int count, const float *value)=0;
 void				(__stdcall *glUniform4f)(int location, float v0, float v1, float v2, float v3)=0;
+void				(__stdcall *glUniform4fv)(int location, int count, float *value)=0;
 #endif
 
 const char*			wm2str(int message)
@@ -835,11 +840,13 @@ void				update_main_key_states()
 }
 void				timer_start()
 {
-	SetTimer(ghWnd, 0, 10, 0);
+	if(!timer)
+		SetTimer(ghWnd, 0, 10, 0), timer=1;
 }
 void				timer_stop()
 {
-	KillTimer(ghWnd, 0);
+	if(timer)
+		KillTimer(ghWnd, 0), timer=0;
 }
 long __stdcall		WndProc(HWND hWnd, unsigned int message, unsigned int wParam, long lParam)
 {
@@ -916,7 +923,7 @@ long __stdcall		WndProc(HWND hWnd, unsigned int message, unsigned int wParam, lo
 	case WM_SYSKEYDOWN:
 		if(io_keydn(wParam, 0))
 			InvalidateRect(hWnd, 0, 0);
-		keyboard[VK_RBUTTON]=1;
+		keyboard[wParam]=1;
 		break;
 	case WM_KEYUP:
 	case WM_SYSKEYUP:
@@ -1030,6 +1037,7 @@ int __stdcall		WinMain(HINSTANCE hInstance, HINSTANCE hPrev, char *pCmdLine, int
 	GET_GL_FUNC(glUniform3f);
 	GET_GL_FUNC(glUniform3fv);
 	GET_GL_FUNC(glUniform4f);
+	GET_GL_FUNC(glUniform4fv);
 #undef	GET_GL_FUNC
 #undef	GET_GL_FUNC_UNCHECKED
 #pragma warning(pop)
@@ -1692,8 +1700,9 @@ int		main(int argc, char** argv)
 		printf("Direct GLX rendering context obtained\n");
 	glXMakeCurrent(display, window, context);
 
+	GLversion=(const char*)glGetString(GL_VERSION);
 	printf("GL Renderer: %s\n", glGetString(GL_RENDERER));
-	printf("GL Version: %s\n", glGetString(GL_VERSION));
+	printf("GL Version: %s\n", GLversion);
 	printf("GLSL Version: %s\n", glGetString(GL_SHADING_LANGUAGE_VERSION));
 	
 	if(!init_gl()||!io_init(argc, argv))
@@ -1726,6 +1735,8 @@ int		main(int argc, char** argv)
 
 		if(signal==2)
 			break;
+		if(timer)
+			io_timer();
 		if(timer||signal)
 		{
 			io_render();
@@ -1741,7 +1752,7 @@ int		main(int argc, char** argv)
 		//usleep((unsigned int)(sleepTime / 1000));
 	}
 
-	printf("Shutting Down\n");
+	printf("Quitting...\n");
 	io_cleanup();
 
 	// Cleanup GLX
@@ -2124,17 +2135,32 @@ void				setGLProgram(unsigned program)
 void				send_color(unsigned location, int color)
 {
 	unsigned char *p=(unsigned char*)&color;
-
 	__m128 m_255=_mm_set1_ps(inv255);
+
 	__m128 c=_mm_castsi128_ps(_mm_set_epi32(p[3], p[2], p[1], p[0]));
 	c=_mm_cvtepi32_ps(_mm_castps_si128(c));
 	c=_mm_mul_ps(c, m_255);
 	ALIGN(16) float comp[4];
 	_mm_store_ps(comp, c);
-	glUniform4f(location, comp[0], comp[1], comp[2], comp[3]);
+	glUniform4fv(location, 1, comp);
 
 	//glUniform4f(location, p[0]*inv255, p[1]*inv255, p[2]*inv255, p[3]*inv255);
 	
+	GL_CHECK();
+}
+void			send_color_rgb(unsigned location, int color)
+{
+	unsigned char *p=(unsigned char*)&color;
+	__m128 m_255=_mm_set1_ps(inv255);
+
+	__m128 c=_mm_castsi128_ps(_mm_set_epi32(p[3], p[2], p[1], p[0]));
+	c=_mm_cvtepi32_ps(_mm_castps_si128(c));
+	c=_mm_mul_ps(c, m_255);
+	ALIGN(16) float comp[4];
+	_mm_store_ps(comp, c);
+	glUniform3fv(location, 1, comp);
+	//glUniform3f(location, p[0]*inv255, p[1]*inv255, p[2]*inv255);
+
 	GL_CHECK();
 }
 void				send_texture_pot(unsigned gl_texture, int *rgba, int txw, int txh)
@@ -2185,7 +2211,12 @@ int					init_gl()
 	glBlendEquation(GL_FUNC_ADD);						GL_CHECK();
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);	GL_CHECK();
 	//glDisable(GL_BLEND);	GL_CHECK();
-	glDisable(GL_LINE_SMOOTH);	GL_CHECK();
+
+	//glDisable(GL_LINE_SMOOTH);	GL_CHECK();//does nothing
+
+#ifndef NO_3D
+	glEnable(GL_DEPTH_TEST);
+#endif
 
 #define	SHADER(NAME)	if(!make_gl_program(&shader_##NAME))return 0;
 	SHADER_LIST
@@ -2336,9 +2367,9 @@ void				draw_rectangle_hollow(float x1, float x2, float y1, float y2, int color)
 
 float				*vrtx=0;
 int					vrtx_bcap=0;
-int					vrtx_resize(int vcount)
+int					vrtx_resize(int vcount, int floatspervertex)
 {
-	int bytesize=vcount*2*sizeof(float), bcap=vrtx_bcap?vrtx_bcap:1;
+	int bytesize=vcount*floatspervertex*sizeof(float), bcap=vrtx_bcap?vrtx_bcap:1;
 	for(;bcap<bytesize;bcap<<=1);
 	if(bcap!=vrtx_bcap)
 	{
@@ -2361,7 +2392,7 @@ void				draw_ellipse(float x1, float x2, float y1, float y2, int color)
 	else
 		ya=y2, yb=y1;
 	int line_count=(int)ceil(yb)-(int)floor(ya);
-	if(!vrtx_resize(line_count*2))
+	if(!vrtx_resize(line_count*2, 2))
 		return;
 	float x0=(x1+x2)*0.5f, y0=(y1+y2)*0.5f, rx=fabsf(x2-x0), ry=yb-y0;
 	int nlines=0;
@@ -2455,7 +2486,7 @@ float				print_line(float tab_origin, float x, float y, float zoom, const char *
 	float CX1=2.f/rdx, CX0=CX1*(x-rx0)-1;//delta optimization
 	rect[1]=1-(y-ry0)*2.f/rdy;
 	rect[3]=1-(y+height-ry0)*2.f/rdy;
-	vrtx_resize(msg_length<<2);//vx, vy, txx, txy		x4 vertices/char
+	vrtx_resize(msg_length<<2, 4);//vx, vy, txx, txy		x4 vertices/char
 	int k=ret_idx?*ret_idx:0;
 	if(req_cols<0||cursor_cols<req_cols)
 	{
@@ -2556,3 +2587,233 @@ float				GUIPrint(float tab_origin, float x, float y, float zoom, const char *fo
 	va_end(args);
 	return print_line(tab_origin, x, y, zoom, g_buf, len, -1, 0, 0);
 }
+
+void			display_texture_i(int x1, int x2, int y1, int y2, int *rgb, int txw, int txh, float alpha)
+{
+	static unsigned tx_id=0;
+	float _2_w=2.f/w, _2_h=2.f/h;
+	float rect[]=
+	{
+		x1*_2_w-1, 1-y1*_2_h,
+		x2*_2_w-1, 1-y2*_2_h//y2<y1
+	};
+	float vrtx[]=
+	{
+		rect[0], rect[1],		0, 0,//top left
+		rect[0], rect[3],		0, 1,//bottom left
+		rect[2], rect[3],		1, 1,//bottom right
+		rect[2], rect[1],		1, 0 //top right
+	};
+	if(rgb)
+	{
+	#define	NPOT_ATIX2300_FIX
+		int *rgb2, w2, h2;
+#ifdef NPOT_ATIX2300_FIX
+		int expand;
+		int logw=floor_log2(txw), logh=floor_log2(txh);
+		if(expand=(!GLversion||GLversion[0]<'3')&&(txw>1<<logw||txh>1<<logh))
+		{
+			w2=txw>1<<logw?1<<(logw+1):txw;
+			h2=txh>1<<logh?1<<(logh+1):txh;
+			int size=w2*h2;
+			rgb2=(int*)malloc(size<<2);
+			memset(rgb2, 0, size<<2);
+			for(int ky=0;ky<txh;++ky)
+				memcpy(rgb2+w2*ky, rgb+txw*ky, txw<<2);
+			float nw=(float)txw/w2, nh=(float)txh/h2;
+			vrtx[ 2]=0,		vrtx[ 3]=0;
+			vrtx[ 6]=0,		vrtx[ 7]=nh;
+			vrtx[10]=nw,	vrtx[11]=nh;
+			vrtx[14]=nw,	vrtx[15]=0;
+		}
+		else
+#endif
+			rgb2=rgb, w2=txw, h2=txh;
+		setGLProgram(shader_texture.program);	GL_CHECK();
+		glUniform1f(u_texture_alpha, alpha);	GL_CHECK();
+		if(!tx_id)//generate texture id once
+		{
+			glGenTextures(1, &tx_id);			GL_CHECK();
+		}
+		glBindTexture(GL_TEXTURE_2D, tx_id);								GL_CHECK();
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);	GL_CHECK();
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);	GL_CHECK();
+		glTexImage2D(GL_TEXTURE_2D,			0, GL_RGBA, w2, h2, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgb2);	GL_CHECK();//send bitmap to GPU
+
+		select_texture(tx_id, u_texture_texture);
+		glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);				GL_CHECK();
+		glBufferData(GL_ARRAY_BUFFER, 16<<2, vrtx, GL_STATIC_DRAW);	GL_CHECK();//send vertices & texcoords
+
+		glVertexAttribPointer(a_texture_coords, 4, GL_FLOAT, GL_FALSE, 4<<2, (void*)0);		GL_CHECK();//select vertices & texcoord
+
+		glEnableVertexAttribArray(a_texture_coords);	GL_CHECK();
+		glDrawArrays(GL_QUADS, 0, 4);					GL_CHECK();//draw the quad
+		glDisableVertexAttribArray(a_texture_coords);	GL_CHECK();
+#ifdef NPOT_ATIX2300_FIX
+		if(expand)
+			free(rgb2);
+#endif
+	}
+}
+
+//3D
+#ifndef NO_3D
+void			mat4_lookAt(float *dst, const float *cam, const float *center, const float *up)
+{
+	float f[3], t1, u[3], s[3];
+	vec3_sub(f, center, cam);
+	vec3_normalize(f, f, t1);
+	vec3_normalize(u, up, t1);
+	vec3_cross(s, f, u);
+	vec3_normalize(s, s, t1);
+	vec3_cross(u, s, f);
+	dst[0]=s[0], dst[4]=s[1], dst[8]=s[2], dst[12]=-vec3_dot(s, cam);
+	dst[1]=u[0], dst[5]=u[1], dst[9]=u[2], dst[13]=-vec3_dot(u, cam);
+	dst[2]=f[0], dst[6]=f[1], dst[10]=f[2], dst[14]=-vec3_dot(f, cam);
+	dst[3]=0, dst[7]=0, dst[11]=0, dst[15]=1;
+}
+void			mat4_FPSView(float *dst, const float *campos, float yaw, float pitch)
+{
+	float _cam[]={-campos[1], campos[2], -campos[0]};
+	//float _cam[]={campos[0], campos[1], campos[2]};
+	float cos_p=cosf(pitch), sin_p=sinf(pitch), cos_y=cosf(yaw), sin_y=sinf(yaw);
+	float
+		xaxis[]={cos_y, 0, -sin_y},
+		yaxis[]={sin_y*sin_p, cos_p, cos_y*sin_p},
+		zaxis[]={sin_y*cos_p, -sin_p, cos_p*cos_y};
+
+	dst[0]=xaxis[2], dst[1]=yaxis[2], dst[2]=zaxis[2], dst[3]=0;
+	dst[4]=xaxis[0], dst[5]=yaxis[0], dst[6]=zaxis[0], dst[7]=0;
+	dst[8]=xaxis[1], dst[9]=yaxis[1], dst[10]=zaxis[1], dst[11]=0;
+
+	//dst[0]=xaxis[0], dst[1]=yaxis[0], dst[2]=zaxis[0], dst[3]=0;
+	//dst[4]=xaxis[1], dst[5]=yaxis[1], dst[6]=zaxis[1], dst[7]=0;
+	//dst[8]=xaxis[2], dst[9]=yaxis[2], dst[10]=zaxis[2], dst[11]=0;
+
+	dst[12]=-vec3_dot(xaxis, _cam), dst[13]=-vec3_dot(yaxis, _cam), dst[14]=-vec3_dot(zaxis, _cam), dst[15]=1;
+}
+void			mat4_perspective(float *dst, float tanfov, float w_by_h, float znear, float zfar)
+{
+	dst[0]=1/tanfov,	dst[1]=0,				dst[2]=0,							dst[3]=0;
+	dst[4]=0,			dst[5]=w_by_h/tanfov,	dst[6]=0,							dst[7]=0;
+	dst[8]=0,			dst[9]=0,				dst[10]=-(zfar+znear)/(zfar-znear), dst[11]=-1;
+	dst[12]=0,			dst[13]=0,				dst[14]=-2*zfar*znear/(zfar-znear), dst[15]=0;
+}
+void			GetTransformInverseNoScale(float *dst, const float *src)// Requires this matrix to be transform matrix, NoScale version requires this matrix be of scale 1
+{
+	//https://lxjk.github.io/2017/09/03/Fast-4x4-Matrix-Inverse-with-SSE-SIMD-Explained.html
+#define MakeShuffleMask(x,y,z,w)           (x | (y<<2) | (z<<4) | (w<<6))
+
+// vec(0, 1, 2, 3) -> (vec[x], vec[y], vec[z], vec[w])
+#define VecSwizzleMask(vec, mask)          _mm_castsi128_ps(_mm_shuffle_epi32(_mm_castps_si128(vec), mask))
+#define VecSwizzle(vec, x, y, z, w)        VecSwizzleMask(vec, MakeShuffleMask(x,y,z,w))
+#define VecSwizzle1(vec, x)                VecSwizzleMask(vec, MakeShuffleMask(x,x,x,x))
+// special swizzle
+#define VecSwizzle_0022(vec)               _mm_moveldup_ps(vec)
+#define VecSwizzle_1133(vec)               _mm_movehdup_ps(vec)
+
+// return (vec1[x], vec1[y], vec2[z], vec2[w])
+#define VecShuffle(vec1, vec2, x,y,z,w)    _mm_shuffle_ps(vec1, vec2, MakeShuffleMask(x,y,z,w))
+// special shuffle
+#define VecShuffle_0101(vec1, vec2)        _mm_movelh_ps(vec1, vec2)
+#define VecShuffle_2323(vec1, vec2)        _mm_movehl_ps(vec2, vec1)
+	__m128 inM[4], ret[4];
+	
+	inM[0]=_mm_loadu_ps(src);
+	inM[1]=_mm_loadu_ps(src+4);
+	inM[2]=_mm_loadu_ps(src+8);
+	inM[3]=_mm_loadu_ps(src+12);
+
+	// transpose 3x3, we know m03 = m13 = m23 = 0
+	__m128 t0 = VecShuffle_0101(inM[0], inM[1]); // 00, 01, 10, 11
+	__m128 t1 = VecShuffle_2323(inM[0], inM[1]); // 02, 03, 12, 13
+	ret[0] = VecShuffle(t0, inM[2], 0,2,0,3); // 00, 10, 20, 23(=0)
+	ret[1] = VecShuffle(t0, inM[2], 1,3,1,3); // 01, 11, 21, 23(=0)
+	ret[2] = VecShuffle(t1, inM[2], 0,2,2,3); // 02, 12, 22, 23(=0)
+
+	// last line
+	ret[3] =                    _mm_mul_ps(ret[0], VecSwizzle1(inM[3], 0));
+	ret[3] = _mm_add_ps(ret[3], _mm_mul_ps(ret[1], VecSwizzle1(inM[3], 1)));
+	ret[3] = _mm_add_ps(ret[3], _mm_mul_ps(ret[2], VecSwizzle1(inM[3], 2)));
+	ret[3] = _mm_sub_ps(_mm_setr_ps(0.f, 0.f, 0.f, 1.f), ret[3]);
+
+	_mm_storeu_ps(dst, ret[0]);
+	_mm_storeu_ps(dst+4, ret[1]);
+	_mm_storeu_ps(dst+8, ret[2]);
+	_mm_storeu_ps(dst+12, ret[3]);
+#undef MakeShuffleMask
+#undef VecSwizzleMask
+#undef VecSwizzle
+#undef VecSwizzle1
+#undef VecSwizzle_0022
+#undef VecSwizzle_1133
+#undef VecShuffle
+#undef VecShuffle_0101
+#undef VecShuffle_2323
+}
+void			mat4_normalmat3(float *dst, float *m4)//inverse transpose of top left 3x3 submatrix
+{
+	float temp[16];
+	GetTransformInverseNoScale(temp, m4);
+	vec3_copy(dst, temp);
+	vec3_copy(dst+3, temp+4);
+	vec3_copy(dst+6, temp+8);
+}
+void			gpubuf_send_VNT(GPUModel *dst, const float *VVVNNNTT, int n_floats, const int *indices, int n_ints)
+{
+	dst->n_elements=n_ints, dst->stride=8*sizeof(float);
+	dst->vertices_start=0;
+	dst->normals_start=3*sizeof(float);
+	dst->txcoord_start=6*sizeof(float);
+	glGenBuffers(2, &dst->VBO);
+	glBindBuffer(GL_ARRAY_BUFFER, dst->VBO);											GL_CHECK();
+	glBufferData(GL_ARRAY_BUFFER, n_floats*sizeof(float), VVVNNNTT, GL_STATIC_DRAW);	GL_CHECK();
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, dst->EBO);									GL_CHECK();
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, n_ints*sizeof(int), indices, GL_STATIC_DRAW);	GL_CHECK();
+}
+void			draw_L3D(Camera const *cam, GPUModel const *model, const float *modelpos, const float *lightpos, int lightcolor)
+{
+	float mView[16], mProj[16], mVP[16], mMVP_Model[32], mNormal[9], sceneInfo[9];
+	__m128 temp1;
+
+	setGLProgram(shader_L3D.program);
+
+	mat4_FPSView(mView, &cam->x, cam->ax, cam->ay);
+	mat4_perspective(mProj, cam->tanfov, (float)(w)/h, 0.1f, 1000.f);
+	mat4_mul_mat4(mVP, mProj, mView, temp1);
+
+	float *mMVP=mMVP_Model, *mModel=mMVP_Model+16;
+	mat4_identity(mModel, 1);
+	mat4_translate(mModel, modelpos, temp1);
+	mat4_normalmat3(mNormal, mModel);
+	mat4_mul_mat4(mMVP, mVP, mModel, temp1);
+
+	unsigned char *p=(unsigned char*)&lightcolor;
+	memcpy(sceneInfo, lightpos, 3*sizeof(float));
+	sceneInfo[3]=p[0]*inv255;
+	sceneInfo[4]=p[1]*inv255;
+	sceneInfo[5]=p[2]*inv255;
+	memcpy(sceneInfo+6, &cam->x, 3*sizeof(float));
+	
+	glUniformMatrix4fv(u_L3D_matVP_Model, 2, GL_FALSE, mMVP_Model);	GL_CHECK();
+	glUniformMatrix3fv(u_L3D_matNormal, 1, GL_FALSE, mNormal);		GL_CHECK();
+	glUniform3fv(u_L3D_sceneInfo, 3, sceneInfo);	GL_CHECK();
+//	glBindVertexArray(s_VAO);						GL_CHECK();
+
+	select_texture(model->txid, u_L3D_texture);
+		
+	glBindBuffer(GL_ARRAY_BUFFER, model->VBO);			GL_CHECK();
+	glEnableVertexAttribArray(a_L3D_vertex);			GL_CHECK();
+	glVertexAttribPointer(a_L3D_vertex, 3, GL_FLOAT, GL_FALSE, model->stride, (void*)(long long)model->vertices_start);	GL_CHECK();
+	glEnableVertexAttribArray(a_L3D_normal);			GL_CHECK();
+	glVertexAttribPointer(a_L3D_normal, 3, GL_FLOAT, GL_FALSE, model->stride, (void*)(long long)model->normals_start);	GL_CHECK();
+	glEnableVertexAttribArray(a_L3D_texcoord);			GL_CHECK();
+	glVertexAttribPointer(a_L3D_texcoord, 2, GL_FLOAT, GL_FALSE, model->stride, (void*)(long long)model->txcoord_start);GL_CHECK();
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, model->EBO);	GL_CHECK();
+
+	glDrawElements(GL_TRIANGLES, model->n_elements, GL_UNSIGNED_INT, 0);	GL_CHECK();
+	glDisableVertexAttribArray(a_L3D_vertex);			GL_CHECK();
+	glDisableVertexAttribArray(a_L3D_normal);			GL_CHECK();
+	glDisableVertexAttribArray(a_L3D_texcoord);			GL_CHECK();
+}
+#endif

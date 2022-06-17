@@ -7,10 +7,114 @@
 #include<GL/gl.h>
 #include<stdio.h>
 #include<stdlib.h>
+#include<tmmintrin.h>
+#define UTAH_TEAPOT_IMPLEMENTATION
+#include"utah_teapot.h"
+
+//	#define	DEBUG_TEAPOT
+
+float mouse_sensitivity=0.003f;
+Camera cam=
+{
+	50, 50, 50,
+	225*torad, 324.7356103172454f*torad,
+	1,
+	0.4f, 2*torad,
+};
+Model cpu_teapot={};
+GPUModel gpu_teapot={};
+int modelColor=0xFF808080;
+float modelPos[]={0, 0, 0};//TODO: replace this with model matrix in GPUModel
+float lightPos[]={15, 15, 15};
+
+//active keys turn on timer
+#define ACTIVE_KEY_LIST\
+	AK('W') AK('A') AK('S') AK('D') AK('T') AK('G')\
+	AK(KEY_LEFT) AK(KEY_RIGHT) AK(KEY_UP) AK(KEY_DOWN)\
+	AK(KEY_ENTER) AK(KEY_BKSP)
+int active_keys_pressed=0;
+
+
+#if 0
+void print_matrix(float *buffer, int bw, int bh, int transposed)
+{
+	int kx, ky, *cx, *cy;
+	if(transposed)
+		cx=&ky, cy=&kx;
+	else
+		cx=&kx, cy=&ky;
+	for(ky=0;ky<bh;++ky)
+	{
+		for(kx=0;kx<bw;++kx)
+			printf("%.2f\t", buffer[bw**cy+*cx]);
+		printf("\n");
+	}
+	printf("\n");
+}
+#endif
 int io_init(int argc, char **argv)//return false to abort
 {
 	set_window_title("IO Test");
 	glClearColor(0, 0, 0, 1);
+
+	cam.ax=225*torad;
+	cam.ay=324.7356103172454f*torad;
+	cam.turn_speed=2*torad;
+	cam_update_ax(cam);
+	cam_update_ay(cam);
+
+#if 0
+	//matmul test
+	float ma[16], mb[16], mc[16], md[16];
+	for(int k=0;k<16;++k)
+	{
+		ma[k]=(float)rand()/RAND_MAX;
+		mb[k]=(float)rand()/RAND_MAX;
+	}
+	__m128 temp1, temp2[8];
+	mat4_mul_mat4(mc, ma, mb, temp1);
+
+	mat4_transpose(ma, ma, temp2);//column-major -> row-major
+	mat4_transpose(mb, mb, temp2);
+	mat4_transpose(mc, mc, temp2);
+	for(int ky=0;ky<4;++ky)//md = ma * mb
+	{
+		for(int kx=0;kx<4;++kx)
+		{
+			float sum=0;
+			for(int ki=0;ki<4;++ki)
+				sum+=ma[4*ky+ki]*mb[4*ki+kx];
+			md[4*ky+kx]=sum;
+		}
+	}
+	printf("src1 src2 mat4mul for\n");
+	print_matrix(ma, 4, 4, 0);
+	print_matrix(mb, 4, 4, 0);
+	print_matrix(mc, 4, 4, 0);
+	print_matrix(md, 4, 4, 0);
+	//for(int k=0;k<16;++k)
+	//	if(abs(mc[k]-md[k])>1e-3)
+	//		int LOL_1=0;
+#endif
+
+	generate_utah_mesh(&cpu_teapot, 4);
+#if 0
+	int count=10;
+	printf("First %d triangles:\n", count);
+	auto vertices=cpu_teapot.VVVNNNTT;
+	for(int k=0;k<count;++k)
+	{
+	}
+#endif
+	gpubuf_send_VNT(&gpu_teapot, cpu_teapot.VVVNNNTT, cpu_teapot.n_floats, cpu_teapot.indices, cpu_teapot.n_elements);
+#ifndef DEBUG_TEAPOT
+	free(cpu_teapot.VVVNNNTT), cpu_teapot.VVVNNNTT=nullptr;
+	free(cpu_teapot.indices), cpu_teapot.indices=nullptr;
+#endif
+	glGenTextures(1, &gpu_teapot.txid);
+	int texture[]={modelColor, modelColor, modelColor, modelColor};
+	send_texture_pot(gpu_teapot.txid, texture, 2, 2);
+
 	return true;
 }
 void io_resize()
@@ -18,12 +122,22 @@ void io_resize()
 }
 int io_mousemove()//return true to redraw
 {
-	printf("Move to (%d, %d)\n", mx, my);
+	//printf("Move to (%d, %d)\n", mx, my);
 	return true;
 }
 int io_mousewheel(int forward)
 {
 	return true;
+}
+static void count_active_keys(IOKey upkey)
+{
+	keyboard[upkey]=false;
+	active_keys_pressed=0;
+#define		AK(KEY)		active_keys_pressed+=keyboard[KEY];
+	ACTIVE_KEY_LIST
+#undef		AK
+	if(!active_keys_pressed)
+		timer_stop();
 }
 int io_keydn(IOKey key, char c)
 {
@@ -34,6 +148,13 @@ int io_keydn(IOKey key, char c)
 	case KEY_RBUTTON:
 		printf("Click at (%d, %d)\n", mx, my);
 		break;
+
+#define		AK(KEY)		case KEY:
+	ACTIVE_KEY_LIST
+#undef		AK
+		timer_start();
+		break;
+
 	default:
 		printf("%02X %02X=%c down\n", key, c, c);
 		if(key=='A')
@@ -51,19 +172,56 @@ int io_keyup(IOKey key, char c)
 	case KEY_RBUTTON:
 		printf("Declick at (%d, %d)\n", mx, my);
 		break;
+
+#define		AK(KEY)		case KEY:
+	ACTIVE_KEY_LIST
+#undef		AK
+		count_active_keys(key);
+		break;
+
 	case KEY_F4:
 		prof_on=!prof_on;
 		break;
-	default:
-		printf("%02X %02X=%c up\n", key, c, c);
-		if(key=='A')
-			timer_stop();
-		break;
+	//default:
+	//	printf("%02X %02X=%c up\n", key, c, c);
+	//	if(key=='A')
+	//		timer_stop();
+	//	break;
 	}
 	return false;
 }
 void io_timer()
 {
+	float move_speed=keyboard[KEY_SHIFT]?10*cam.move_speed:cam.move_speed;
+	if(keyboard['W'])		cam_moveForward(cam, move_speed);
+	if(keyboard['A'])		cam_moveLeft(cam, move_speed);
+	if(keyboard['S'])		cam_moveBack(cam, move_speed);
+	if(keyboard['D'])		cam_moveRight(cam, move_speed);
+	if(keyboard['T'])		cam_moveUp(cam, move_speed);
+	if(keyboard['G'])		cam_moveDown(cam, move_speed);
+	if(keyboard[KEY_UP])	cam_turnUp(cam);
+	if(keyboard[KEY_DOWN])	cam_turnDown(cam);
+	if(keyboard[KEY_LEFT])	cam_turnLeft(cam);
+	if(keyboard[KEY_RIGHT])	cam_turnRight(cam);
+	if(keyboard[KEY_ENTER])	cam_zoomIn(cam, 1.1f);
+	if(keyboard[KEY_BKSP])	cam_zoomOut(cam, 1.1f);
+}
+static void draw_line_3d(float *p1, float *p2, int color)
+{
+	float cp[3], temp1[3], s1[2], s2[2];
+	int X0=w>>1, Y0=h>>1;
+
+	cam_world2cam(cam, p1, cp, temp1);
+	if(cp[2]<0)
+		return;
+	cam_cam2screen(cam, cp, s1, X0, Y0);
+
+	cam_world2cam(cam, p2, cp, temp1);
+	if(cp[2]<0)
+		return;
+	cam_cam2screen(cam, cp, s2, X0, Y0);
+
+	draw_line(s1[0], s1[1], s2[0], s2[1], color);
 }
 void io_render()
 {
@@ -75,11 +233,42 @@ void io_render()
 		level=1, delta=-0.01f;
 	else if(level<0)
 		level=0, delta=0.01f;//*/
-	glClear(GL_COLOR_BUFFER_BIT);
+	glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
 
 	if(!h)
 		return;
 
+	float axes[]=
+	{
+		0, 0, 0,
+		1, 0, 0,
+		0, 1, 0,
+		0, 0, 1,
+	};
+	draw_line_3d(axes, axes+1, 0xFF0000FF);
+	draw_line_3d(axes, axes+2, 0xFF00FF00);
+	draw_line_3d(axes, axes+3, 0xFFFF0000);
+	draw_L3D(&cam, &gpu_teapot, modelPos, lightPos, 0x80C0FF);
+
+#ifdef DEBUG_TEAPOT
+	int wireColor=0xFF80FF80;
+	auto vert=cpu_teapot.VVVNNNTT;
+	auto indices=cpu_teapot.indices;
+	for(int kt=0;kt<cpu_teapot.n_elements;kt+=3)
+	{
+		float tr[]=
+		{
+			vert[indices[kt]<<3], vert[indices[kt]<<3|1], vert[indices[kt]<<3|2],
+			vert[indices[kt+1]<<3], vert[indices[kt+1]<<3|1], vert[indices[kt+1]<<3|2],
+			vert[indices[kt+2]<<3], vert[indices[kt+2]<<3|1], vert[indices[kt+2]<<3|2],
+		};
+		draw_line_3d(tr, tr+3, wireColor);
+		draw_line_3d(tr+3, tr+6, wireColor);
+		draw_line_3d(tr+6, tr, wireColor);
+	}
+#endif
+	GUIPrint(0, 0, 0, 1, "p(%f, %f, %f) a(%f, %f) fov %f", cam.x, cam.y, cam.z, cam.ax, cam.ay, atan(cam.tanfov)*todeg*2);
+#if 0
 	for(int k=0;k<h;k+=2)
 		draw_line((float)(w>>1), (float)k, (float)(w*3>>2), (float)k, 0xFFFF00FF);
 	draw_ellipse(0, (float)(w>>2), 0, (float)(h>>2), 0xFF0000FF);
@@ -91,6 +280,7 @@ void io_render()
 		draw_ellipse((float)(rand()%w), (float)(rand()%w), (float)(rand()%h), (float)(rand()%h), color);
 	}
 	draw_line_i(rand()%w, rand()%h, rand()%w, rand()%h, 0xFF000000|rand()<<15|rand());
+#endif
 	prof_add("draw");
 }
 int io_quit_request()//return 1 to exit
