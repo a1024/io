@@ -497,6 +497,7 @@ void		generate_utah_mesh(ModelStruct *model, int resolution)//resolution >= 1 (i
 					idst[i_idx2+4]=vidx2+resolution+1;
 					idst[i_idx2+5]=vidx2;
 				}
+				++vidx2;
 			}
 
 			i_idx+=patch_idx_count;

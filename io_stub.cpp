@@ -103,7 +103,7 @@ int io_init(int argc, char **argv)//return false to abort
 	//		int LOL_1=0;
 #endif
 
-	generate_utah_mesh(&cpu_teapot, 5);
+	generate_utah_mesh(&cpu_teapot, 10);
 #if 0
 	int count=10;
 	printf("First %d triangles:\n", count);
