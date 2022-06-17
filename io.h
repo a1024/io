@@ -514,6 +514,8 @@ const char
 //API
 double		time_ms();
 void		set_window_title(const char *format, ...);
+void		set_mouse(int x, int y);//client coordinates
+void		show_mouse(int show);
 
 typedef enum MessageBoxTypeEnum
 {
@@ -825,10 +827,10 @@ typedef struct CameraStruct
 #define		cam_turnLeft(CAM)				(CAM).ax+=(CAM).turn_speed, cam_update_ax(CAM)
 #define		cam_turnRight(CAM)				(CAM).ax-=(CAM).turn_speed, cam_update_ax(CAM)
 #define		cam_turnMouse(CAM, DX, DY, SENSITIVITY)\
-	(CAM).ax+=(SENSITIVITY)*(CAM).turn_speed*(DX), cam_update_ax(CAM),\
-	(CAM).ay+=(SENSITIVITY)*(CAM).turn_speed*(DY), cam_update_ay(CAM)
-#define		cam_zoomIn(CAM, RATIO)			(CAM).tanfov/=RATIO
-#define		cam_zoomOut(CAM, RATIO)			(CAM).tanfov*=RATIO
+	(CAM).ax-=(SENSITIVITY)*(CAM).turn_speed*(DX), cam_update_ax(CAM),\
+	(CAM).ay-=(SENSITIVITY)*(CAM).turn_speed*(DY), cam_update_ay(CAM)
+#define		cam_zoomIn(CAM, RATIO)			(CAM).tanfov/=RATIO, (CAM).turn_speed=(CAM).tanfov>1?1:(CAM).tanfov
+#define		cam_zoomOut(CAM, RATIO)			(CAM).tanfov*=RATIO, (CAM).turn_speed=(CAM).tanfov>1?1:(CAM).tanfov
 #define		cam_accelerate(GAIN)			(CAM).move_speed*=GAIN
 
 #define		cam_relworld2cam(CAM, DISP, DST_CP)\

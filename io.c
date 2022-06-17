@@ -272,6 +272,16 @@ void				set_window_title(const char *format, ...)
 	va_end(args);
 	SetWindowTextA(ghWnd, g_buf);
 }
+void				set_mouse(int x, int y)
+{
+	POINT p={x, y};
+	ClientToScreen(ghWnd, &p);
+	SetCursorPos(p.x, p.y);
+}
+void				show_mouse(int show)
+{
+	ShowCursor(show);
+}
 
 int					console_active=0;
 void				console_show()//https://stackoverflow.com/questions/191842/how-do-i-get-console-output-in-c-with-a-windows-program
@@ -366,7 +376,7 @@ int					messagebox(MessageBoxType type, const char *title, const char *format, .
 		switch(result)
 		{
 		case IDOK:
-			result=1;
+			result=0;
 			break;
 		case IDCANCEL:
 		default:
@@ -386,38 +396,6 @@ int					messagebox(MessageBoxType type, const char *title, const char *format, .
 	}
 	return result;
 }
-#if 0
-int					messagebox_okcancel(const char *title, const char *format, ...)
-{
-	int len=format_utf8_message(title, format, (char*)(&format+1));
-	int result=MessageBoxW(ghWnd, g_wbuf, g_wbuf+len, MB_OKCANCEL);
-	switch(result)
-	{
-	case IDOK:		return 0;
-	case IDCANCEL:	return 1;
-	}
-	return 1;
-}
-int					messagebox_yesnocancel(const char *title, const char *format, ...)
-{
-	int len=format_utf8_message(title, format, (char*)(&format+1));
-	//va_list args;
-	//va_start(args, format);
-	//int len=vsprintf_s(g_buf, g_buf_size, format, args);
-	//va_end(args);
-	//len=MultiByteToWideChar(CP_UTF8, 0, g_buf, len, g_wbuf, g_buf_size);	SYS_ASSERT(len);
-	//g_wbuf[len]='\0';
-	//++len;
-	int result=MessageBoxW(ghWnd, g_wbuf, g_wbuf+len, MB_YESNOCANCEL);
-	switch(result)
-	{
-	case IDYES:		return 0;
-	case IDNO:		return 1;
-	case IDCANCEL:	return 2;
-	}
-	return 2;
-}
-#endif
 
 void				copy_to_clipboard_c(const char *a, int size)//size not including null terminator
 {
@@ -879,7 +857,7 @@ long __stdcall		WndProc(HWND hWnd, unsigned int message, unsigned int wParam, lo
 			InvalidateRect(hWnd, 0, 0);
 		break;
 	case WM_MOUSEWHEEL:
-		if(io_mousewheel(((short*)&wParam)[1]>0))
+		if(io_mousewheel(GET_Y_LPARAM(wParam)))
 			InvalidateRect(hWnd, 0, 0);
 		break;
 
@@ -921,7 +899,13 @@ long __stdcall		WndProc(HWND hWnd, unsigned int message, unsigned int wParam, lo
 		
 	case WM_KEYDOWN:
 	case WM_SYSKEYDOWN:
-		if(io_keydn(wParam, 0))
+		if(wParam==KEY_F4&&keyboard[KEY_ALT])
+		{
+			if(!io_quit_request())
+				return 0;
+			PostQuitMessage(0);
+		}
+		else if(io_keydn(wParam, 0))
 			InvalidateRect(hWnd, 0, 0);
 		keyboard[wParam]=1;
 		break;
@@ -934,6 +918,8 @@ long __stdcall		WndProc(HWND hWnd, unsigned int message, unsigned int wParam, lo
 		break;
 
 	case WM_CLOSE:
+		if(!io_quit_request())
+			return 0;
 		PostQuitMessage(0);
 		break;
 	}
@@ -1097,6 +1083,37 @@ const char file[]=__FILE__;
 #define WINDOW_WIDTH	800
 #define WINDOW_HEIGHT	600
 
+Display	*display=0;
+Window	window;
+Screen	*screen=0;
+int		screenId=0;
+Atom	atomWmDeleteWindow;
+GLXContext context=0;
+
+double	time_ms()
+{
+	struct timespec t;
+	clock_gettime(CLOCK_REALTIME, &t);
+	return t.tv_sec*1000+t.tv_nsec*1e-6;
+}
+void	set_window_title(const char *format, ...)
+{
+	va_list args;
+	va_start(args, format);
+	vsnprintf(g_buf, g_buf_size, format, args);
+	va_end(args);
+	int ret=XStoreName(display, window, g_buf);
+}
+void	set_mouse(int x, int y)
+{
+	XWarpPointer(display, None, window, 0, 0, 0, 0, x-mx, y-my);
+}
+void	show_mouse(int show)
+{
+	//TODO
+	//https://stackoverflow.com/questions/660613/how-do-you-hide-the-mouse-pointer-under-linux-x11
+}
+
 typedef struct ClipboardDataStruct
 {
 	union
@@ -1182,92 +1199,12 @@ int		messagebox(MessageBoxType type, const char *title, const char *format, ...)
 	g_idle_add(display_dialog, &dialog_data);
 	gtk_main();
 	return dialog_data.result;
-#if 0
-	Window hWnd2=XCreateSimpleWindow(display, RootWindow(display, screenId), 0, 0, 800, 100, 1, BlackPixel(display, screenId), WhitePixel(display, screenId));
-	XStoreName(display, hWnd2, title);
-	XSelectInput(display, hWnd2, ExposureMask|PointerMotionMask|ButtonPressMask|ButtonReleaseMask);
-	XMapWindow(display, hWnd2);
-	Atom WM_DELETE_WINDOW = XInternAtom(display, "WM_DELETE_WINDOW", False);
-	XSetWMProtocols(display, hWnd2, &WM_DELETE_WINDOW, 1);
-	int success=glXMakeCurrent(display, hWnd2, context);
-	if(!success)
-		return;
-	XClearWindow(display, hWnd2);
-	XMapRaised(display, hWnd2);
-	int result=0;
-	for(;;)//message loop
-	{
-		XEvent event;
-		KeySym key;
-		XNextEvent(display, &event);
-		switch(event.type)
-		{
-		case KeyPress:
-			{
-				XLookupString(&event.xkey, g_buf, g_buf_size, &key, 0);
-				char mask=0, c=0;
-				IOKey k=translate_key(key, &mask, &c);
-				result=io_keydn(k, c);
-				keyboard[k]|=mask;
-			}
-			break;
-		case KeyRelease:
-			{
-				XLookupString(&event.xkey, g_buf, g_buf_size, &key, 0);
-				char mask=0, c=0;
-				IOKey k=translate_key(key, &mask, &c);
-				result=io_keyup(k, c);
-				keyboard[k]&=~mask;
-			}
-			break;
-		case ButtonPress:
-			result=io_keydn((IOKey)event.xbutton.button, 0);
-			break;
-		case ButtonRelease:
-			result=io_keyup((IOKey)event.xbutton.button, 0);
-			break;
-		case MotionNotify:
-			mx=event.xmotion.x, my=event.xmotion.y;
-			result=io_mousemove();
-			break;
-		}
-
-		if(result==2)
-			break;
-		if(timer||result)
-		{
-			io_render();
-			prof_print();
-			glXSwapBuffers(display, window);
-		}
-	}
-#endif
 }
 
-double	time_ms()
-{
-	struct timespec t;
-	clock_gettime(CLOCK_REALTIME, &t);
-	return t.tv_sec*1000+t.tv_nsec*1e-6;
-}
 typedef GLXContext (*glXCreateContextAttribsARBProc)(Display*, GLXFBConfig, GLXContext, Bool, const int*);
 static int isExtensionSupported(const char *extList, const char *extension)
 {
 	return strstr(extList, extension)!=0;
-}
-Display	*display=0;
-Window	window;
-Screen	*screen=0;
-int		screenId=0;
-Atom	atomWmDeleteWindow;
-GLXContext context=0;
-void	set_window_title(const char *format, ...)
-{
-	va_list args;
-	va_start(args, format);
-	vsnprintf(g_buf, g_buf_size, format, args);
-	va_end(args);
-	int ret=XStoreName(display, window, g_buf);
 }
 void				timer_start()
 {
@@ -1448,21 +1385,21 @@ int		process_event()
 		mx=event.xmotion.x, my=event.xmotion.y;
 		result=io_mousemove();
 		break;
-	case EnterNotify:
-		printf("Enter at (%d, %d)\n", event.xcrossing.x, event.xcrossing.y);
-		break;
-	case LeaveNotify:
-		printf("Leave at (%d, %d)\n", event.xcrossing.x, event.xcrossing.y);
-		break;
-	case FocusIn:
-		printf("FocusIn\n");
-		break;
-	case FocusOut:
-		printf("FocusOut\n");
-		break;
-	case KeymapNotify:
-		printf("KeymapNotify\n");
-		break;
+	//case EnterNotify:
+	//	printf("Enter at (%d, %d)\n", event.xcrossing.x, event.xcrossing.y);
+	//	break;
+	//case LeaveNotify:
+	//	printf("Leave at (%d, %d)\n", event.xcrossing.x, event.xcrossing.y);
+	//	break;
+	//case FocusIn:
+	//	printf("FocusIn\n");
+	//	break;
+	//case FocusOut:
+	//	printf("FocusOut\n");
+	//	break;
+	//case KeymapNotify:
+	//	printf("KeymapNotify\n");
+	//	break;
 	case Expose:
 		{
 			XWindowAttributes attribs;
@@ -1473,65 +1410,65 @@ int		process_event()
 			result=RESULT_REDRAW;
 		}
 		break;
-	case GraphicsExpose:
-		printf("GraphicsExpose\n");
-		break;
-	case NoExpose:
-		printf("NoExpose\n");
-		break;
-	case VisibilityNotify:
-		printf("VisibilityNotify\n");
-		break;
-	case CreateNotify:
-		printf("CreateNotify\n");
-		break;
+	//case GraphicsExpose:
+	//	printf("GraphicsExpose\n");
+	//	break;
+	//case NoExpose:
+	//	printf("NoExpose\n");
+	//	break;
+	//case VisibilityNotify:
+	//	printf("VisibilityNotify\n");
+	//	break;
+	//case CreateNotify:
+	//	printf("CreateNotify\n");
+	//	break;
 	case DestroyNotify:
 		result=RESULT_QUIT;
-	case UnmapNotify:
-		printf("UnmapNotify\n");
-		break;
-	case MapNotify:
-		printf("MapNotify\n");
-		break;
-	case MapRequest:
-		printf("MapRequest\n");
-		break;
-	case ReparentNotify:
-		printf("ReparentNotify\n");
-		break;
-	case ConfigureNotify:
-		printf("ConfigureNotify\n");
-		break;
-	case ConfigureRequest:
-		printf("ConfigureRequest\n");
-		break;
-	case GravityNotify:
-		printf("GravityNotify\n");
-		break;
-	case ResizeRequest:
-		printf("ResizeRequest\n");
-		break;
-	case CirculateNotify:
-		printf("CirculateNotify\n");
-		break;
-	case CirculateRequest:
-		printf("CirculateRequest\n");
-		break;
-	case PropertyNotify:
-		printf("PropertyNotify\n");
-		break;
-	case SelectionClear:
-		printf("SelectionClear\n");
-		break;
-	case SelectionRequest:
-		printf("SelectionRequest\n");
-		break;
-	case SelectionNotify:
-		printf("SelectionNotify\n");
-		break;
-	case ColormapNotify:
-		printf("ColormapNotify\n");
-		break;
+	//case UnmapNotify:
+	//	printf("UnmapNotify\n");
+	//	break;
+	//case MapNotify:
+	//	printf("MapNotify\n");
+	//	break;
+	//case MapRequest:
+	//	printf("MapRequest\n");
+	//	break;
+	//case ReparentNotify:
+	//	printf("ReparentNotify\n");
+	//	break;
+	//case ConfigureNotify:
+	//	printf("ConfigureNotify\n");
+	//	break;
+	//case ConfigureRequest:
+	//	printf("ConfigureRequest\n");
+	//	break;
+	//case GravityNotify:
+	//	printf("GravityNotify\n");
+	//	break;
+	//case ResizeRequest:
+	//	printf("ResizeRequest\n");
+	//	break;
+	//case CirculateNotify:
+	//	printf("CirculateNotify\n");
+	//	break;
+	//case CirculateRequest:
+	//	printf("CirculateRequest\n");
+	//	break;
+	//case PropertyNotify:
+	//	printf("PropertyNotify\n");
+	//	break;
+	//case SelectionClear:
+	//	printf("SelectionClear\n");
+	//	break;
+	//case SelectionRequest:
+	//	printf("SelectionRequest\n");
+	//	break;
+	//case SelectionNotify:
+	//	printf("SelectionNotify\n");
+	//	break;
+	//case ColormapNotify:
+	//	printf("ColormapNotify\n");
+	//	break;
 	case ClientMessage:
 		if(event.xclient.data.l[0]==atomWmDeleteWindow)
 		{
@@ -1539,15 +1476,15 @@ int		process_event()
 				result=RESULT_QUIT;
 		}
 		break;
-	case MappingNotify:
-		printf("MappingNotify\n");
-		break;
-	case GenericEvent:
-		printf("GenericEvent\n");
-		break;
-	default:
-		printf("unknown event %d\n", event.type);
-		break;
+	//case MappingNotify:
+	//	printf("MappingNotify\n");
+	//	break;
+	//case GenericEvent:
+	//	printf("GenericEvent\n");
+	//	break;
+	//default:
+	//	printf("unknown event %d\n", event.type);
+	//	break;
 	}
 	return result;
 }
@@ -2148,7 +2085,7 @@ void				send_color(unsigned location, int color)
 	
 	GL_CHECK();
 }
-void			send_color_rgb(unsigned location, int color)
+void				send_color_rgb(unsigned location, int color)
 {
 	unsigned char *p=(unsigned char*)&color;
 	__m128 m_255=_mm_set1_ps(inv255);

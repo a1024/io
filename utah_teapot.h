@@ -423,7 +423,7 @@ void		generate_utah_mesh(ModelStruct *model, int resolution)//resolution >= 1 (i
 	}
 
 	const int npatches=32;
-	int patch_vcount=(resolution+1);
+	int patch_vcount=resolution+1;
 	patch_vcount*=patch_vcount;
 	model->n_floats=npatches*patch_vcount*8;
 	model->VVVNNNTT=(float*)malloc(model->n_floats*sizeof(float));
@@ -431,13 +431,14 @@ void		generate_utah_mesh(ModelStruct *model, int resolution)//resolution >= 1 (i
 	model->n_elements=npatches*patch_idx_count;
 	model->indices=(int*)malloc(model->n_elements*sizeof(int));
 
-	for(int offset=0, kpart=0, vidx=0, i_idx=0;kpart<SIZEOF(utah_bezier_part_sizes);++kpart)
+	int zerocounter=0;
+	for(int patch_offset=0, kpart=0, vidx=0, i_idx=0;kpart<SIZEOF(utah_bezier_part_sizes);++kpart)
 	{
 		int patchespersurface=utah_bezier_part_sizes[kpart];
 		for(int ks=0;ks<patchespersurface;++ks)
 		{
-			float *vdst=model->VVVNNNTT+8*vidx;
-			int idx=(offset+ks)<<4;
+			float *vdst=model->VVVNNNTT+(vidx<<3);
+			int idx=(patch_offset+ks)<<4;
 			for(int kpoint=0;kpoint<16;++kpoint)
 				memcpy(cache+kpoint, utah_bezier_vertices+(utah_bezier_indices[idx+kpoint]-1)*3, sizeof(Point));
 			
@@ -477,8 +478,9 @@ void		generate_utah_mesh(ModelStruct *model, int resolution)//resolution >= 1 (i
 					//texcoords
 					vdst[vidx2+6]=0.5;//
 					vdst[vidx2+7]=0.5;
-					if(!vdst[vidx2]&&!vdst[vidx2+1]&&!vdst[vidx2+2])
-						int LOL_1=0;
+
+					if(!vdst[vidx2]&&!vdst[vidx2+1]&&!vdst[vidx2+2])//
+						++zerocounter;//
 				}
 			}
 
@@ -500,7 +502,7 @@ void		generate_utah_mesh(ModelStruct *model, int resolution)//resolution >= 1 (i
 			i_idx+=patch_idx_count;
 			vidx+=patch_vcount;
 		}
-		offset+=patchespersurface;
+		patch_offset+=patchespersurface;
 	}
 	free(weights);
 }
