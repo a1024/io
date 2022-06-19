@@ -13,7 +13,9 @@
 
 //	#define	DEBUG_TEAPOT
 
-float mouse_sensitivity=0.003f;
+float
+	mouse_sensitivity=0.003f,
+	key_turn_speed=0.03f;
 Camera cam=
 {
 	10, 10, 10,
@@ -25,7 +27,7 @@ Model cpu_teapot={};
 GPUModel gpu_teapot={};
 int modelColor=0xFF808080;
 float modelPos[]={0, 0, 0};//TODO: replace this with model matrix in GPUModel
-float lightPos[]={15, 15, 15};
+float lightPos[]={15, 15, -15};
 char wireframe=0;
 
 //active keys turn on timer
@@ -36,9 +38,13 @@ char wireframe=0;
 int active_keys_pressed=0;
 
 //mouse
-char drag=0, mouse_bypass=0;
+char drag=0;
+//char mouse_bypass=0;//in Windows SetCursorPos triggers WM_MOUSEMOVE, TODO: (Windows) if set_mouse is calles, skip next WM_MOUSEMOVE - DONE?
 int mx0=0, my0=0;
 
+//open file dialog test
+ArrayHandle openfiles=nullptr;
+const char *savedfile=nullptr;
 
 #if 0
 void print_matrix(float *buffer, int bw, int bh, int transposed)
@@ -126,15 +132,16 @@ int io_init(int argc, char **argv)//return false to abort
 void io_resize()
 {
 }
-//float fdx=0, fdy=0;//
 int io_mousemove()//return true to redraw
 {
-	mouse_bypass=!mouse_bypass;
-	if(drag&&mouse_bypass)
+//#ifdef __linux__
+	if(drag)
+//#else
+//	mouse_bypass=!mouse_bypass;
+//	if(drag&&mouse_bypass)
+//#endif
 	{
 		int X0=w>>1, Y0=h>>1;
-		//fdx=(0.003f)*cam.turn_speed*(mx-X0);//
-		//fdy=(0.003f)*cam.turn_speed*(my-Y0);//
 		cam_turnMouse(cam, mx-X0, my-Y0, mouse_sensitivity);
 		set_mouse(X0, Y0);
 		return !timer;
@@ -166,8 +173,26 @@ static void count_active_keys(IOKey upkey)
 	if(!active_keys_pressed)
 		timer_stop();
 }
+Filter file_filters[]=
+{
+	{"Text files", "*.txt"},
+	{"C source files", "*.c"},
+	{"C++ source files", "*.cpp"},
+	{"Header files", "*.h"},
+	{"All files", "*.*"},
+};
 int io_keydn(IOKey key, char c)
 {
+	switch(key)
+	{
+	case 'S':
+		if(keyboard[KEY_CTRL])
+		{
+			savedfile=dialog_save_file(file_filters, SIZEOF(file_filters));
+			return true;
+		}
+		break;
+	}
 	switch(key)
 	{
 	case KEY_LBUTTON:
@@ -198,6 +223,20 @@ int io_keydn(IOKey key, char c)
 		return true;
 	case 'E':
 		wireframe=!wireframe;
+		return true;
+	case 'O':
+		if(keyboard[KEY_CTRL])
+		{
+			if(openfiles)
+			{
+				int temp1[2]={};
+				FREE_ARRAY_OF_POINTERS(openfiles, temp1);
+			}
+			if(keyboard[KEY_SHIFT])
+				openfiles=dialog_open_folder(true);
+			else
+				openfiles=dialog_open_file(file_filters, SIZEOF(file_filters), true);
+		}
 		return true;
 	case KEY_F4:
 		prof_on=!prof_on;
@@ -243,10 +282,10 @@ void io_timer()
 	if(keyboard['D'])		cam_moveRight(cam, move_speed);
 	if(keyboard['T'])		cam_moveUp(cam, move_speed);
 	if(keyboard['G'])		cam_moveDown(cam, move_speed);
-	if(keyboard[KEY_UP])	cam_turnUp(cam);
-	if(keyboard[KEY_DOWN])	cam_turnDown(cam);
-	if(keyboard[KEY_LEFT])	cam_turnLeft(cam);
-	if(keyboard[KEY_RIGHT])	cam_turnRight(cam);
+	if(keyboard[KEY_UP])	cam_turnUp(cam, key_turn_speed);
+	if(keyboard[KEY_DOWN])	cam_turnDown(cam, key_turn_speed);
+	if(keyboard[KEY_LEFT])	cam_turnLeft(cam, key_turn_speed);
+	if(keyboard[KEY_RIGHT])	cam_turnRight(cam, key_turn_speed);
 	if(keyboard[KEY_ENTER])	cam_zoomIn(cam, 1.1f);
 	if(keyboard[KEY_BKSP])	cam_zoomOut(cam, 1.1f);
 }
@@ -317,7 +356,20 @@ void io_render()
 	}
 #endif
 	GUIPrint(0, 0, 0, 1, "p(%f, %f, %f) a(%f, %f) fov %f", cam.x, cam.y, cam.z, cam.ax, cam.ay, atan(cam.tanfov)*todeg*2);
-	//GUIPrint(0, 0, tdy, 1, "d(%f, %f)", fdx, fdy);//
+	GUIPrint(0, 0, tdy, 1, "timer %d, rand %d", timer, rand());
+	float y=tdy*3;
+	if(openfiles)
+	{
+		GUIPrint(0, 0, y, 1, "Open files:");
+		y+=tdy;
+		for(int k=0, count=array_size(&openfiles);k<count;++k)
+		{
+			GUIPrint(0, 0, y, 1, "%d\t%s", k, *(char**)array_at(&openfiles, k));
+			y+=tdy;
+		}
+	}
+	if(savedfile)
+		GUIPrint(0, 0, y, 1, "Saved as: %s", savedfile);
 #if 0
 	for(int k=0;k<h;k+=2)
 		draw_line((float)(w>>1), (float)k, (float)(w*3>>2), (float)k, 0xFFFF00FF);

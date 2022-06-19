@@ -32,6 +32,7 @@
 
 int					w=0, h=0, mx=0, my=0;
 char				timer=0, keyboard[256]={0};
+static char			mouse_bypass=0;
 
 char				g_buf[g_buf_size]={0};
 #if defined _MSC_VER|| defined _WIN32 || defined _WINDOWS
@@ -277,6 +278,14 @@ void				set_mouse(int x, int y)
 	POINT p={x, y};
 	ClientToScreen(ghWnd, &p);
 	SetCursorPos(p.x, p.y);
+	mouse_bypass=1;
+}
+void				get_mouse(int *px, int *py)
+{
+	POINT p;
+	GetCursorPos(&p);
+	ScreenToClient(ghWnd, &p);
+	*px=p.x, *py=p.y;
 }
 void				show_mouse(int show)
 {
@@ -395,6 +404,140 @@ int					messagebox(MessageBoxType type, const char *title, const char *format, .
 		break;
 	}
 	return result;
+}
+
+#define				UTF8TOWCHAR(U8, LEN, RET_U16, RET_BUF_SIZE, RET_LEN)	RET_LEN=MultiByteToWideChar(CP_UTF8, 0, U8, LEN, RET_U16, RET_BUF_SIZE)
+//const wchar_t*		multibyte2wide(const char *str, int len, int *ret_len)
+//{
+//	int len2=MultiByteToWideChar(CP_UTF8, 0, str, strlen(str), g_wbuf, g_buf_size);	SYS_ASSERT(len2);
+//	if(ret_len)
+//		*ret_len=len2;
+//	return g_wbuf;
+//}
+const char*			dialog_open_folder(int multiple)//C++?
+{
+	HRESULT hr=OleInitialize(0);
+	if(hr!=S_OK)
+	{
+		OleUninitialize();
+		return false;
+	}
+	IFileOpenDialog *pFileOpenDialog=0;
+	IShellItem *pShellItem=0;
+	LPWSTR fullpath=0;
+	hr=CoCreateInstance(CLSID_FileOpenDialog, 0, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&pFileOpenDialog));
+	bool success=false;
+	if(SUCCEEDED(hr))
+	{
+		hr=pFileOpenDialog->SetOptions(FOS_PICKFOLDERS|FOS_FORCEFILESYSTEM);
+		hr=pFileOpenDialog->Show(0);
+		success=SUCCEEDED(hr);
+		if(success)
+		{
+			hr=pFileOpenDialog->GetResult(&pShellItem);
+			pShellItem->GetDisplayName(SIGDN_FILESYSPATH, &fullpath);
+			path=fullpath;
+			CoTaskMemFree(fullpath);
+		}
+		pFileOpenDialog->Release();
+	}
+	OleUninitialize();
+	return success;
+}
+const char*			dialog_open_file(Filter *filters, int nfilters, int multiple)//TODO: multiple
+{
+	ArrayHandle winfilts=0;
+	ARRAY_ALLOC(wchar_t, winfilts, 0, 1);
+	for(int k=0;k<nfilters;++k)
+	{
+		int len=0;
+
+		UTF8TOWCHAR(filters[k].comment, strlen(filters[k].comment), g_wbuf, g_buf_size, len);
+		//const wchar_t *str=multibyte2wide(filters[k].comment, strlen(filters[k].comment), &len);
+		if(!len)
+			break;
+		ARRAY_APPEND(winfilts, g_wbuf, len, 1, 1);
+
+		UTF8TOWCHAR(filters[k].ext, strlen(filters[k].ext), g_wbuf, g_buf_size, len);
+		//str=multibyte2wide(filters[k].ext, strlen(filters[k].ext), &len);
+		if(!len)
+			break;
+		ARRAY_APPEND(winfilts, str, len, 1, 1);
+	}
+
+	g_wbuf[0]=0;
+	OPENFILENAMEW ofn=
+	{
+		sizeof(OPENFILENAMEW),
+		ghWnd, ghInstance,
+		&WSTR_AT(winfilts), 0, 0, 1,
+		g_wbuf, g_buf_size,
+		0, 0,//initial filename
+		0,
+		0,//dialog title
+		OFN_CREATEPROMPT|OFN_PATHMUSTEXIST,
+		0,//file offset
+		0,//extension offset
+		L"txt",//default extension
+		0, 0,//data & hook
+		0,//template name
+		0,//reserved
+		0,//reserved
+		0,//flags ex
+	};
+	int success=GetOpenFileNameW(&ofn);
+	array_free(&winfilts);
+	if(!success)
+		return 0;
+
+	int len=WideCharToMultiByte(CP_UTF8, 0, ofn.lpstrFile, wcslen(ofn.lpstrFile), g_buf, g_buf_size, 0, 0);	SYS_ASSERT(len);
+	if(!len)
+		return 0;
+	g_buf[len]='\0';
+	return g_buf;
+}
+const wchar_t		initialname[]=L"Untitled.txt";
+const char*			dialog_save_file(Filter *filters, int nfilters)
+{
+	memcpy(g_wbuf, initialname, sizeof(initialname));
+	//g_wbuf[0]=0;
+	OPENFILENAMEW ofn=
+	{
+		sizeof(OPENFILENAMEW), ghWnd, ghInstance,
+		
+		L"Text File (.txt)\0*.txt\0"	//<- filter
+		L"C++ Source (.cpp; .cc; .cxx)\0*.cpp\0"
+		L"C Source (.c)\0*.c\0"
+		L"C/C++ Header (.h; .hpp)\0*.h\0",
+	//	L"No Extension\0*\0",
+		
+		0, 0,//custom filter & count
+		1,								//<- initial filter index
+		g_wbuf, g_buf_size,				//<- output filename
+		0, 0,//initial filename
+		0,
+		0,//dialog title
+		OFN_NOTESTFILECREATE|OFN_PATHMUSTEXIST|OFN_EXTENSIONDIFFERENT|OFN_OVERWRITEPROMPT,
+		0, 8,							//<- file offset & extension offset
+		L"txt",							//<- default extension (if user didn't type one)
+		0, 0,//data & hook
+		0,//template name
+		0, 0,//reserved
+		0,//flags ex
+	};
+	int success=GetSaveFileNameW(&ofn);
+	if(!success)
+		return 0;
+
+	//char c[]="?";
+	//int invalid=false;
+	int len=WideCharToMultiByte(CP_UTF8, 0, ofn.lpstrFile, wcslen(ofn.lpstrFile), g_buf, g_buf_size, 0, 0);	SYS_ASSERT(len);
+	if(!len)
+		return 0;
+	g_buf[len]='\0';
+	return g_buf;
+	//memcpy(g_wbuf, ofn.lpstrFile, wcslen(ofn.lpstrFile)*sizeof(wchar_t));
+	//return g_wbuf;
 }
 
 void				copy_to_clipboard_c(const char *a, int size)//size not including null terminator
@@ -853,8 +996,13 @@ long __stdcall		WndProc(HWND hWnd, unsigned int message, unsigned int wParam, lo
 
 	case WM_MOUSEMOVE:
 		mx=GET_X_LPARAM(lParam), my=GET_Y_LPARAM(lParam);
-		if(io_mousemove())
-			InvalidateRect(hWnd, 0, 0);
+		if(mouse_bypass)
+			mouse_bypass=0;
+		else
+		{
+			if(io_mousemove())
+				InvalidateRect(hWnd, 0, 0);
+		}
 		break;
 	case WM_MOUSEWHEEL:
 		if(io_mousewheel(GET_Y_LPARAM(wParam)))
@@ -1106,7 +1254,19 @@ void	set_window_title(const char *format, ...)
 }
 void	set_mouse(int x, int y)
 {
-	XWarpPointer(display, None, window, 0, 0, 0, 0, x-mx, y-my);
+	//printf("set_mouse (%d, %d) -> (%d, %d)\n", mx, my, x, y);//
+	//XWarpPointer(display, None, window, 0, 0, 0, 0, x-mx, y-my);
+	XWarpPointer(display, None, window, 0, 0, 0, 0, x, y);
+	mouse_bypass=1;
+}
+void	get_mouse(int *px, int *py)
+{
+	Window ret_root=0, ret_child=0;
+	int x2=0, y2=0;
+	unsigned ret_mask=0;
+	XQueryPointer(display, window, &ret_root, &ret_child, px, py, &x2, &y2, &ret_mask);
+	XTranslateCoordinates(display, ret_root, window, *px, *py, px, py, &ret_child);
+	//printf("Mouse is at (%d, %d)\n", *px, *py);//
 }
 void	show_mouse(int show)
 {
@@ -1114,48 +1274,6 @@ void	show_mouse(int show)
 	//https://stackoverflow.com/questions/660613/how-do-you-hide-the-mouse-pointer-under-linux-x11
 }
 
-typedef struct ClipboardDataStruct
-{
-	union
-	{
-		const char *send;
-		char *receive;
-	};
-	int len;
-} ClipboardData;
-void		clipboard_callback(GtkClipboard *clipboard, const gchar *text, gpointer param)
-{
-	//https://stackoverflow.com/questions/52204996/how-do-i-use-clipboard-in-gtk
-	ClipboardData *data=(ClipboardData*)param;
-	if(data->send)//send to clipboard
-		gtk_clipboard_set_text(clipboard, data->send, data->len);
-	else//receive from clipboard
-	{
-		data->len=strlen(text);
-		data->receive=(char*)malloc(data->len+1);
-		memcpy(data->receive, text, data->len+1);
-	}
-	gtk_main_quit();
-}
-void		copy_to_clipboard_c(const char *str, int len)
-{
-	//https://stackoverflow.com/questions/52204996/how-do-i-use-clipboard-in-gtk
-	ClipboardData data={{str}, len};
-	GtkClipboard *clipboard=gtk_clipboard_get(GDK_SELECTION_CLIPBOARD);
-	gtk_clipboard_request_text(clipboard, clipboard_callback, &data);
-	gtk_main();
-}
-char*		paste_from_clipboard(int loud, int *ret_len)//don't forget to free memory
-{
-	//https://stackoverflow.com/questions/52204996/how-do-i-use-clipboard-in-gtk
-	ClipboardData data={0};
-	GtkClipboard *clipboard=gtk_clipboard_get(GDK_SELECTION_CLIPBOARD);
-	gtk_clipboard_request_text(clipboard, clipboard_callback, &data);
-	gtk_main();
-	if(ret_len)
-		*ret_len=data.len;
-	return data.receive;
-}
 typedef struct DialogDataStruct
 {
 	int type, result;
@@ -1199,6 +1317,171 @@ int		messagebox(MessageBoxType type, const char *title, const char *format, ...)
 	g_idle_add(display_dialog, &dialog_data);
 	gtk_main();
 	return dialog_data.result;
+}
+
+//https://stackoverflow.com/questions/6145910/cross-platform-native-open-save-file-dialogs
+//https://github.com/AndrewBelt/osdialog
+typedef enum OSDialogActionEnum
+{
+	OSDIALOG_OPENFILE,
+	OSDIALOG_OPENFOLDER,
+	OSDIALOG_SAVEFILE,
+} OSDialogAction;
+//typedef struct osdialog_filtersStruct
+//{
+//	const char *name, **patterns;
+//	int npatterns;
+//} osdialog_filters;
+static ArrayHandle osdialog_file(OSDialogAction action, Filter *filters, int nfilters, int select_multiple)
+{
+	GtkFileChooserAction gtkAction;
+	const char* title, *acceptText;
+	switch(action)
+	{
+	case OSDIALOG_OPENFILE:
+		title="Open File";
+		acceptText="Open";
+		gtkAction=GTK_FILE_CHOOSER_ACTION_OPEN;
+		break;
+	case OSDIALOG_OPENFOLDER:
+		title="Open Folder";
+		acceptText="Open Folder";
+		gtkAction=GTK_FILE_CHOOSER_ACTION_SELECT_FOLDER;
+		break;
+	case OSDIALOG_SAVEFILE:
+		title="Save File";
+		acceptText="Save";
+		gtkAction=GTK_FILE_CHOOSER_ACTION_SAVE;
+		break;
+	default:
+		return 0;
+	}
+	if(!gtk_init_check(NULL, NULL))
+		return 0;
+
+	GtkWidget* dialog=gtk_file_chooser_dialog_new(title, NULL, gtkAction,
+		"_Cancel", GTK_RESPONSE_CANCEL,
+		acceptText, GTK_RESPONSE_ACCEPT, NULL);
+
+	for(int k=0;k<nfilters;++k)
+	{
+		GtkFileFilter *fileFilter=gtk_file_filter_new();
+		gtk_file_filter_set_name(fileFilter, filters[k].comment);
+		gtk_file_filter_add_pattern(fileFilter, filters[k].ext);
+		gtk_file_chooser_add_filter(GTK_FILE_CHOOSER(dialog), fileFilter);
+	}
+	//for(int k=0;k<nfilters;++k)
+	//{
+	//	auto filter=filters+k;
+	//	auto fileFilter=gtk_file_filter_new();
+	//	gtk_file_filter_set_name(fileFilter, filter->name);
+	//	for(int k2=0;k2<filter->npatterns;++k2)
+	//		gtk_file_filter_add_pattern(fileFilter, filter->patterns[k2]);
+	//	gtk_file_chooser_add_filter(GTK_FILE_CHOOSER(dialog), fileFilter);
+	//}
+
+	if(action==OSDIALOG_OPENFILE||action==OSDIALOG_OPENFOLDER)
+		gtk_file_chooser_set_select_multiple(GTK_FILE_CHOOSER(dialog), select_multiple);
+
+	if(action==OSDIALOG_SAVEFILE)
+		gtk_file_chooser_set_do_overwrite_confirmation(GTK_FILE_CHOOSER(dialog), TRUE);
+
+	//if(default_path)
+	//	gtk_file_chooser_set_current_folder(GTK_FILE_CHOOSER(dialog), default_path);
+	//
+	//if(action==OSDIALOG_SAVEFILE&&filename)
+	//	gtk_file_chooser_set_current_name(GTK_FILE_CHOOSER(dialog), filename);
+
+	int ret=gtk_dialog_run(GTK_DIALOG(dialog))==GTK_RESPONSE_ACCEPT;
+	ArrayHandle result=0;
+	if(ret)
+	{
+		GSList *list=gtk_file_chooser_get_filenames(GTK_FILE_CHOOSER(dialog)), *it=list;
+		ARRAY_ALLOC(char*, result, 0, 0);
+		while(it)
+		{
+			char *filename=(char*)it->data;
+			size_t len=strlen(filename);
+			char *fn2=(char*)malloc(len+1);
+			memcpy(fn2, filename, len+1);
+			ARRAY_APPEND(result, &fn2, 1, 1, 0);
+			g_free(filename);
+			it=g_slist_next(it);
+		}
+		g_slist_free(list);
+	}
+	//char *chosen_filename=0;
+	//if(ret)
+	//	chosen_filename=gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(dialog));//returns one at random
+	gtk_widget_destroy(dialog);
+
+	while(gtk_events_pending())
+		gtk_main_iteration();
+	return result;
+}
+ArrayHandle	dialog_open_folder(int multiple)
+{
+	return osdialog_file(OSDIALOG_OPENFOLDER, 0, 0, multiple);
+}
+ArrayHandle	dialog_open_file(Filter *filters, int nfilters, int multiple)
+{
+	return osdialog_file(OSDIALOG_OPENFILE, filters, nfilters, multiple);
+}
+const char*	dialog_save_file(Filter *filters, int nfilters)
+{
+	ArrayHandle arr=osdialog_file(OSDIALOG_SAVEFILE, filters, nfilters, 0);
+	char *filename=0;
+	if(arr)
+	{
+		filename=*(char**)array_at(&arr, 0);
+		for(int k=1, size=array_size(&arr);k<size;++k)
+			free(*(void**)array_at(&arr, k));
+		array_free(&arr);
+	}
+	return filename;
+}
+
+typedef struct ClipboardDataStruct
+{
+	union
+	{
+		const char *send;
+		char *receive;
+	};
+	int len;
+} ClipboardData;
+void		clipboard_callback(GtkClipboard *clipboard, const gchar *text, gpointer param)
+{
+	//https://stackoverflow.com/questions/52204996/how-do-i-use-clipboard-in-gtk
+	ClipboardData *data=(ClipboardData*)param;
+	if(data->send)//send to clipboard
+		gtk_clipboard_set_text(clipboard, data->send, data->len);
+	else//receive from clipboard
+	{
+		data->len=strlen(text);
+		data->receive=(char*)malloc(data->len+1);
+		memcpy(data->receive, text, data->len+1);
+	}
+	gtk_main_quit();
+}
+void		copy_to_clipboard_c(const char *str, int len)
+{
+	//https://stackoverflow.com/questions/52204996/how-do-i-use-clipboard-in-gtk
+	ClipboardData data={{str}, len};
+	GtkClipboard *clipboard=gtk_clipboard_get(GDK_SELECTION_CLIPBOARD);
+	gtk_clipboard_request_text(clipboard, clipboard_callback, &data);
+	gtk_main();
+}
+char*		paste_from_clipboard(int loud, int *ret_len)//don't forget to free memory
+{
+	//https://stackoverflow.com/questions/52204996/how-do-i-use-clipboard-in-gtk
+	ClipboardData data={0};
+	GtkClipboard *clipboard=gtk_clipboard_get(GDK_SELECTION_CLIPBOARD);
+	gtk_clipboard_request_text(clipboard, clipboard_callback, &data);
+	gtk_main();
+	if(ret_len)
+		*ret_len=data.len;
+	return data.receive;
 }
 
 typedef GLXContext (*glXCreateContextAttribsARBProc)(Display*, GLXFBConfig, GLXContext, Bool, const int*);
@@ -1376,14 +1659,21 @@ int		process_event()
 		}
 		break;
 	case ButtonPress:
-		result=io_keydn((IOKey)event.xbutton.button, 0);
+		if(event.xbutton.button==4||event.xbutton.button==5)
+			result=io_mousewheel(event.xbutton.button==4);
+		else
+			result=io_keydn((IOKey)event.xbutton.button, 0);
 		break;
 	case ButtonRelease:
-		result=io_keyup((IOKey)event.xbutton.button, 0);
+		if(event.xbutton.button!=4&&event.xbutton.button!=5)
+			result=io_keyup((IOKey)event.xbutton.button, 0);
 		break;
 	case MotionNotify:
 		mx=event.xmotion.x, my=event.xmotion.y;
-		result=io_mousemove();
+		if(!mouse_bypass)
+			result=io_mousemove();
+		else
+			mouse_bypass=0;
 		break;
 	//case EnterNotify:
 	//	printf("Enter at (%d, %d)\n", event.xcrossing.x, event.xcrossing.y);
@@ -1654,27 +1944,29 @@ int		main(int argc, char** argv)
 
 	XClearWindow(display, window);
 	XMapRaised(display, window);//Show the window
+	get_mouse(&mx, &my);
 
-	int signal=0;
+	int signal;
 	for(;;)//message loop
 	{
+		signal=0;
 		if(timer)
 		{
 			while(XPending(display))
-				signal=process_event();
+				signal|=process_event();
 		}
 		else
 		{
 			do
-				signal=process_event();
+				signal|=process_event();
 			while(XPending(display));
 		}
 
-		if(signal==2)
+		if(signal>>1)
 			break;
 		if(timer)
 			io_timer();
-		if(timer||signal)
+		if(timer||signal&1)
 		{
 			io_render();
 			prof_print();
@@ -2246,9 +2538,15 @@ void				draw_line(float x1, float y1, float x2, float y2, int color)
 	
 //	glBindBuffer(GL_ARRAY_BUFFER, 0);										GL_CHECK();
 //	glVertexAttribPointer(a_2D_coords, 2, GL_FLOAT, GL_FALSE, 0, g_fbuf);	GL_CHECK();
-	
+
+#ifndef NO_3D
+	glDisable(GL_DEPTH_TEST);
+#endif
 	glDrawArrays(GL_LINES, 0, 2);			GL_CHECK();
 	glDisableVertexAttribArray(a_2D_coords);GL_CHECK();
+#ifndef NO_3D
+	glEnable(GL_DEPTH_TEST);
+#endif
 }
 void				draw_line_i(int x1, int y1, int x2, int y2, int color){draw_line((float)x1, (float)y1, (float)x2, (float)y2, color);}
 void				draw_rectangle(float x1, float x2, float y1, float y2, int color)
@@ -2273,8 +2571,14 @@ void				draw_rectangle(float x1, float x2, float y1, float y2, int color)
 //	glBindBuffer(GL_ARRAY_BUFFER, 0);										GL_CHECK();
 //	glVertexAttribPointer(a_2D_coords, 2, GL_FLOAT, GL_FALSE, 0, g_fbuf);	GL_CHECK();
 	
+#ifndef NO_3D
+	glDisable(GL_DEPTH_TEST);
+#endif
 	glDrawArrays(GL_TRIANGLE_FAN, 0, 5);	GL_CHECK();
 	glDisableVertexAttribArray(a_2D_coords);GL_CHECK();
+#ifndef NO_3D
+	glEnable(GL_DEPTH_TEST);
+#endif
 }
 void				draw_rectangle_i(int x1, int x2, int y1, int y2, int color){draw_rectangle((float)x1, (float)x2, (float)y1, (float)y2, color);}
 void				draw_rectangle_hollow(float x1, float x2, float y1, float y2, int color)
@@ -2298,8 +2602,14 @@ void				draw_rectangle_hollow(float x1, float x2, float y1, float y2, int color)
 //	glBindBuffer(GL_ARRAY_BUFFER, 0);										GL_CHECK();
 //	glVertexAttribPointer(a_2D_coords, 2, GL_FLOAT, GL_FALSE, 0, g_fbuf);	GL_CHECK();
 	
+#ifndef NO_3D
+	glDisable(GL_DEPTH_TEST);
+#endif
 	glDrawArrays(GL_LINE_LOOP, 0, 4);		GL_CHECK();
 	glDisableVertexAttribArray(a_2D_coords);GL_CHECK();
+#ifndef NO_3D
+	glEnable(GL_DEPTH_TEST);
+#endif
 }
 
 float				*vrtx=0;
@@ -2363,8 +2673,14 @@ void				draw_ellipse(float x1, float x2, float y1, float y2, int color)
 //	glBindBuffer(GL_ARRAY_BUFFER, 0);		GL_CHECK();
 //	glVertexAttribPointer(a_2D_coords, 2, GL_FLOAT, GL_FALSE, 0, vrtx);	GL_CHECK();
 	
+#ifndef NO_3D
+	glDisable(GL_DEPTH_TEST);
+#endif
 	glDrawArrays(GL_LINES, 0, nlines*2);	GL_CHECK();
 	glDisableVertexAttribArray(a_2D_coords);GL_CHECK();
+#ifndef NO_3D
+	glEnable(GL_DEPTH_TEST);
+#endif
 }
 
 //text API
@@ -2473,6 +2789,9 @@ float				print_line(float tab_origin, float x, float y, float zoom, const char *
 		}
 		if(printable_count)
 		{
+#ifndef NO_3D
+			glDisable(GL_DEPTH_TEST);
+#endif
 			if(sdf_active)
 			{
 				setGLProgram(shader_sdftext.program);
@@ -2506,6 +2825,9 @@ float				print_line(float tab_origin, float x, float y, float zoom, const char *
 				glDrawArrays(GL_QUADS, 0, printable_count<<2);	GL_CHECK();//draw the quads: 4 vertices per character quad
 				glDisableVertexAttribArray(a_text_coords);		GL_CHECK();
 			}
+#ifndef NO_3D
+			glEnable(GL_DEPTH_TEST);
+#endif
 		}
 	}
 	if(ret_idx)
@@ -2583,9 +2905,15 @@ void			display_texture_i(int x1, int x2, int y1, int y2, int *rgb, int txw, int 
 
 		glVertexAttribPointer(a_texture_coords, 4, GL_FLOAT, GL_FALSE, 4<<2, (void*)0);		GL_CHECK();//select vertices & texcoord
 
+#ifndef NO_3D
+		glDisable(GL_DEPTH_TEST);
+#endif
 		glEnableVertexAttribArray(a_texture_coords);	GL_CHECK();
 		glDrawArrays(GL_QUADS, 0, 4);					GL_CHECK();//draw the quad
 		glDisableVertexAttribArray(a_texture_coords);	GL_CHECK();
+#ifndef NO_3D
+		glEnable(GL_DEPTH_TEST);
+#endif
 #ifdef NPOT_ATIX2300_FIX
 		if(expand)
 			free(rgb2);

@@ -1,2 +1,7 @@
 
 Thumbs.db
+io_test
+.vscode/configurationCache.log
+.vscode/dryrun.log
+.vscode/settings.json
+.vscode/targets.log

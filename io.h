@@ -56,8 +56,8 @@ extern float		SN_x0, SN_x1, SN_y0, SN_y1, NS_x0, NS_x1, NS_y0, NS_y1;//screen-ND
 #define				NDC2screen_y_bias(Y)	(NS_y1*(Y)+NS_y0-0.5f)
 
 extern char			sdf_available, sdf_active;
-extern short		tab_count;//default is 8 characters
 extern float		tdx, tdy;//non-tab character dimensions at 1x zoom
+extern short		tab_count;//default is 8 characters
 extern float		font_zoom, font_zoom_min, font_zoom_max, sdf_dzoom;
 extern long long	colors_text;//0xBKBKBKBK_TXTXTXTX
 
@@ -97,7 +97,7 @@ typedef size_t DebugInfo;
 #endif
 #ifdef _MSC_VER
 #pragma warning(push)
-#pragma warning(disable:4200)
+#pragma warning(disable:4200)//no default-constructor for struct with zero-length array
 #endif
 typedef struct ArrayHeaderStruct
 {
@@ -182,6 +182,10 @@ IOKEY(0x00, 0x00, UNKNOWN)
 
 
 //direct map keys
+IOKEY(0x01, 0x01, LBUTTON)		//inserted
+IOKEY(0x02, 0x04, MBUTTON)		//inserted
+IOKEY(0x03, 0x02, RBUTTON)		//inserted
+
 IOKEY(0x08, 0x08, BKSP)
 IOKEY(0x09, 0x09, TAB)
 
@@ -248,10 +252,6 @@ IOKEY(0x5D, 0xDD, RBRACKET)		//inserted ']' with '}' 0x7D
 IOKEY(0x60, 0xC0, GRAVEACCENT)	//inserted '`' with '~' 0x7E
 
 IOKEY(0x7F, 0x2E, DEL)
-
-IOKEY(0x81, 0x01, LBUTTON)		//inserted
-IOKEY(0x82, 0x04, MBUTTON)		//inserted
-IOKEY(0x83, 0x02, RBUTTON)		//inserted
 
 IOKEY(0x84, 0x10, SHIFT)		//inserted
 IOKEY(0x85, 0x11, CTRL)			//inserted
@@ -327,9 +327,9 @@ void io_cleanup();//cleanup
 //shaders
 #ifdef IO_IMPLEMENTATION
 #ifdef NO_3D
-#define		SHADER_LIST		SHADER(2D) SHADER(text) SHADER(sdftext) SHADER(texture)
+#define		SHADER_LIST		SHADER(2D) SHADER(texture) SHADER(text) SHADER(sdftext)
 #else
-#define		SHADER_LIST		SHADER(2D) SHADER(text) SHADER(sdftext) SHADER(texture) SHADER(3D) SHADER(L3D)
+#define		SHADER_LIST		SHADER(2D) SHADER(texture) SHADER(text) SHADER(sdftext) SHADER(3D) SHADER(L3D)
 #endif
 
 //shader_2D
@@ -349,6 +349,36 @@ const char
 		"void main()\n"
 		"{\n"
 		"    gl_FragColor=u_color;\n"
+//#ifndef NO_3D
+//		"    gl_FragDepth=0.;\n"
+//#endif
+		"}";
+
+//shader_texture
+#define		ATTR_texture	ATTR(texture, coords)
+#define		UNIF_texture	UNIF(texture, texture) UNIF(texture, alpha)
+const char
+	src_vert_texture[]=
+		"#version 120\n"
+		"attribute vec4 a_coords;"			//attributes: a_coords
+		"varying vec2 v_texcoord;\n"
+		"void main()\n"
+		"{\n"
+		"    gl_Position=vec4(a_coords.xy, 0., 1.);\n"
+		"    v_texcoord=a_coords.zw;\n"
+		"}",
+	src_frag_texture[]=
+		"#version 120\n"
+		"varying vec2 v_texcoord;\n"
+		"uniform sampler2D u_texture;\n"	//uniforms: u_texture, u_alpha
+		"uniform float u_alpha;\n"
+		"void main()\n"
+		"{\n"
+		"    gl_FragColor=texture2D(u_texture, v_texcoord);\n"
+		"    gl_FragColor.a*=u_alpha;\n"
+//#ifndef NO_3D
+//		"    gl_FragDepth=0.;\n"
+//#endif
 		"}";
 
 //shader_text
@@ -373,6 +403,9 @@ const char
 		"{\n"
 		"    vec4 region=texture2D(u_atlas, v_texcoord);\n"
 		"    gl_FragColor=mix(u_txtColor, u_bkColor, region.r);\n"//u_txtColor*(1-region.r) + u_bkColor*region.r
+//#ifndef NO_3D
+//		"    gl_FragDepth=0.;\n"
+//#endif
 		"}";
 
 //shader_sdftext
@@ -403,30 +436,9 @@ const char
 		"    gl_FragColor=mix(u_txtColor, u_bkColor, temp);\n"
 
 	//	"    gl_FragColor=region.r>=0.5f?u_txtColor:u_bkColor;\n"//no anti-aliasing
-		"}";
-
-//shader_texture
-#define		ATTR_texture	ATTR(texture, coords)
-#define		UNIF_texture	UNIF(texture, texture) UNIF(texture, alpha)
-const char
-	src_vert_texture[]=
-		"#version 120\n"
-		"attribute vec4 a_coords;"			//attributes: a_coords
-		"varying vec2 v_texcoord;\n"
-		"void main()\n"
-		"{\n"
-		"    gl_Position=vec4(a_coords.xy, 0., 1.);\n"
-		"    v_texcoord=a_coords.zw;\n"
-		"}",
-	src_frag_texture[]=
-		"#version 120\n"
-		"varying vec2 v_texcoord;\n"
-		"uniform sampler2D u_texture;\n"	//uniforms: u_texture, u_alpha
-		"uniform float u_alpha;\n"
-		"void main()\n"
-		"{\n"
-		"    gl_FragColor=texture2D(u_texture, v_texcoord);\n"
-		"    gl_FragColor.a*=u_alpha;\n"
+//#ifndef NO_3D
+//		"    gl_FragDepth=0.;\n"
+//#endif
 		"}";
 
 //shader_3D
@@ -444,7 +456,7 @@ const char
 		"{\n"
 		"    gl_Position=u_matrix*vec4(a_vertex, 1.);\n"
 		"    v_glposition=gl_Position;\n"
-		"    gl_Position.z=0.;\n"//overlays text, no depth test
+		"    gl_Position.z=0.;\n"
 		"    v_texcoord=a_texcoord;\n"
 		"}",
 	src_frag_3D[]=
@@ -515,6 +527,7 @@ const char
 double		time_ms();
 void		set_window_title(const char *format, ...);
 void		set_mouse(int x, int y);//client coordinates
+void		get_mouse(int *px, int *py);//client coordinates
 void		show_mouse(int show);
 
 typedef enum MessageBoxTypeEnum
@@ -524,6 +537,23 @@ typedef enum MessageBoxTypeEnum
 	MBOX_YESNOCANCEL,
 } MessageBoxType;
 int			messagebox(MessageBoxType type, const char *title, const char *format, ...);//returns index of pressed button
+
+typedef struct FilterStruct
+{
+	const char *comment, *ext;
+} Filter;
+ArrayHandle	dialog_open_folder(int multiple);//utf-8, free array of strings after use
+ArrayHandle	dialog_open_file(Filter *filters, int nfilters, int multiple);//utf-8, free array of strings after use
+const char*	dialog_save_file(Filter *filters, int nfilters);//utf-8
+#define		FREE_ARRAY_OF_POINTERS(ARR, TEMP_2I)\
+	do\
+	{\
+		(TEMP_2I)[1]=array_size(&(ARR));\
+		for((TEMP_2I)[0]=0;(TEMP_2I)[0]<(TEMP_2I)[1];++(TEMP_2I)[0])\
+			free(*(void**)array_at(&(ARR), (TEMP_2I)[0]));\
+		array_free(&(ARR));\
+	}while(0)
+//void		free_array_of_pointers(ArrayHandle *a);//C has no destructors, but this is not part of the array API
 
 void		copy_to_clipboard_c(const char *a, int size);
 char*		paste_from_clipboard(int loud, int *ret_len);//don't forget to free memory
@@ -822,10 +852,10 @@ typedef struct CameraStruct
 #define		cam_moveDown(CAM, SPEED)		(CAM).z-=SPEED
 #define			cam_update_ax(CAM)			(CAM).ax=modulof((CAM).ax, _2pi), (CAM).cax=cosf((CAM).ax), (CAM).sax=sinf((CAM).ax)
 #define			cam_update_ay(CAM)			(CAM).ay=modulof((CAM).ay, _2pi), (CAM).cay=cosf((CAM).ay), (CAM).say=sinf((CAM).ay)
-#define		cam_turnUp(CAM)					(CAM).ay+=(CAM).turn_speed, cam_update_ay(CAM)
-#define		cam_turnDown(CAM)				(CAM).ay-=(CAM).turn_speed, cam_update_ay(CAM)
-#define		cam_turnLeft(CAM)				(CAM).ax+=(CAM).turn_speed, cam_update_ax(CAM)
-#define		cam_turnRight(CAM)				(CAM).ax-=(CAM).turn_speed, cam_update_ax(CAM)
+#define		cam_turnUp(CAM, SPEED)			(CAM).ay+=(SPEED)*(CAM).turn_speed, cam_update_ay(CAM)
+#define		cam_turnDown(CAM, SPEED)		(CAM).ay-=(SPEED)*(CAM).turn_speed, cam_update_ay(CAM)
+#define		cam_turnLeft(CAM, SPEED)		(CAM).ax+=(SPEED)*(CAM).turn_speed, cam_update_ax(CAM)
+#define		cam_turnRight(CAM, SPEED)		(CAM).ax-=(SPEED)*(CAM).turn_speed, cam_update_ax(CAM)
 #define		cam_turnMouse(CAM, DX, DY, SENSITIVITY)\
 	(CAM).ax-=(SENSITIVITY)*(CAM).turn_speed*(DX), cam_update_ax(CAM),\
 	(CAM).ay-=(SENSITIVITY)*(CAM).turn_speed*(DY), cam_update_ay(CAM)
