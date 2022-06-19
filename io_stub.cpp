@@ -1,6 +1,6 @@
 #include"io.h"
 #ifdef _MSC_VER
-#include<Windows.h>
+#include<Windows.h>//just to include gl.h
 #else
 #define GL_GLEXT_PROTOTYPES
 #endif
