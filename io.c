@@ -246,8 +246,21 @@ void				console_pause()
 #include			<io.h>//for console
 #include			<fcntl.h>
 
+#define STRICT_TYPED_ITEMIDS
+#include			<shlobj.h>
+#include			<objbase.h>		// For COM headers
+#include			<shobjidl.h>	// for IFileDialogEvents and IFileDialogControlEvents
+#include			<shlwapi.h>
+#include			<knownfolders.h>// for KnownFolder APIs/datatypes/function headers
+#include			<propvarutil.h>	// for PROPVAR-related functions
+#include			<propkey.h>		// for the Property key APIs/datatypes
+#include			<propidl.h>		// for the Property System APIs
+#include			<strsafe.h>		// for StringCchPrintfW
+#include			<shtypes.h>		// for COMDLG_FILTERSPEC
+#include			<combaseapi.h>	// for IID_PPV_ARGS
 #pragma				comment(lib, "OpenGL32.lib")
 const char			file[]=__FILE__;
+HINSTANCE			ghInstance=0;
 HWND				ghWnd=0;
 RECT				R={0};
 HDC					ghDC=0;
@@ -363,6 +376,8 @@ int					sys_check(const char *file, int line, const char *info)
 }
 #define				SYS_ASSERT(SUCCESS)		((void)((SUCCESS)!=0||sys_check(file, __LINE__, 0)))
 
+#define				UTF8TOWCHAR(U8, LEN, RET_U16, BUF_SIZE, RET_LEN)		RET_LEN=MultiByteToWideChar(CP_UTF8, 0, U8, LEN, RET_U16, BUF_SIZE)
+#define				WCHARTOUTF8(WSTR, LEN, RET_UTF8, BUF_SIZE, RET_LEN)		RET_LEN=WideCharToMultiByte(CP_UTF8, 0, WSTR, LEN, RET_UTF8, BUF_SIZE, 0, 0)
 static int			format_utf8_message(const char *title, const char *format, char *args)//returns idx of title in g_wbuf
 {
 	int len=vsprintf_s(g_buf, g_buf_size, format, args);
@@ -406,45 +421,49 @@ int					messagebox(MessageBoxType type, const char *title, const char *format, .
 	return result;
 }
 
-#define				UTF8TOWCHAR(U8, LEN, RET_U16, RET_BUF_SIZE, RET_LEN)	RET_LEN=MultiByteToWideChar(CP_UTF8, 0, U8, LEN, RET_U16, RET_BUF_SIZE)
-//const wchar_t*		multibyte2wide(const char *str, int len, int *ret_len)
-//{
-//	int len2=MultiByteToWideChar(CP_UTF8, 0, str, strlen(str), g_wbuf, g_buf_size);	SYS_ASSERT(len2);
-//	if(ret_len)
-//		*ret_len=len2;
-//	return g_wbuf;
-//}
-const char*			dialog_open_folder(int multiple)//C++?
+ArrayHandle			dialog_open_folder(int multiple)
 {
+	ArrayHandle arr=0;
+	IFileOpenDialog *pFileOpenDialog=0;
 	HRESULT hr=OleInitialize(0);
 	if(hr!=S_OK)
 	{
 		OleUninitialize();
-		return false;
+		return 0;
 	}
-	IFileOpenDialog *pFileOpenDialog=0;
-	IShellItem *pShellItem=0;
-	LPWSTR fullpath=0;
-	hr=CoCreateInstance(CLSID_FileOpenDialog, 0, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&pFileOpenDialog));
-	bool success=false;
+	IID fileOpenDialogIID={0xD57C7288, 0xD4AD, 0x4768, {0xBE, 0x02, 0x9D, 0x96, 0x95, 0x32, 0xD9, 0x60}};//IFileOpenDialog
+	hr=CoCreateInstance(&CLSID_FileOpenDialog, 0, CLSCTX_INPROC_SERVER, &fileOpenDialogIID, &pFileOpenDialog);
 	if(SUCCEEDED(hr))
 	{
-		hr=pFileOpenDialog->SetOptions(FOS_PICKFOLDERS|FOS_FORCEFILESYSTEM);
-		hr=pFileOpenDialog->Show(0);
+		int success=0, len=0;
+#ifdef __cplusplus
+#define	CALL_METHOD(OBJ, METHOD, ...)	(OBJ)->METHOD(__VA_ARGS__)
+#else
+#define	CALL_METHOD(OBJ, METHOD, ...)	(OBJ)->lpVtbl->METHOD(OBJ, ##__VA_ARGS__)
+#endif
+		hr=CALL_METHOD(pFileOpenDialog, SetOptions, FOS_PICKFOLDERS|FOS_FORCEFILESYSTEM);
+		hr=CALL_METHOD(pFileOpenDialog, Show, 0);
 		success=SUCCEEDED(hr);
 		if(success)
 		{
-			hr=pFileOpenDialog->GetResult(&pShellItem);
-			pShellItem->GetDisplayName(SIGDN_FILESYSPATH, &fullpath);
-			path=fullpath;
+			IShellItem *pShellItem=0;
+			wchar_t *fullpath=0;
+			hr=CALL_METHOD(pFileOpenDialog, GetResult, &pShellItem);
+			CALL_METHOD(pShellItem, GetDisplayName, SIGDN_FILESYSPATH, &fullpath);
+			WCHARTOUTF8(fullpath, wcslen(fullpath), g_buf, g_buf_size, len);
+			char *path=(char*)malloc(len+1);
+			memcpy(path, g_buf, len+1);
+			ARRAY_ALLOC(char*, arr, 0, 0);
+			ARRAY_APPEND(arr, path, 1, 1, 0);
 			CoTaskMemFree(fullpath);
 		}
-		pFileOpenDialog->Release();
+		CALL_METHOD(pFileOpenDialog, Release);
+#undef	CALL_METHOD
 	}
 	OleUninitialize();
-	return success;
+	return arr;
 }
-const char*			dialog_open_file(Filter *filters, int nfilters, int multiple)//TODO: multiple
+ArrayHandle			dialog_open_file(Filter *filters, int nfilters, int multiple)//TODO: multiple
 {
 	ArrayHandle winfilts=0;
 	ARRAY_ALLOC(wchar_t, winfilts, 0, 1);
@@ -453,16 +472,14 @@ const char*			dialog_open_file(Filter *filters, int nfilters, int multiple)//TOD
 		int len=0;
 
 		UTF8TOWCHAR(filters[k].comment, strlen(filters[k].comment), g_wbuf, g_buf_size, len);
-		//const wchar_t *str=multibyte2wide(filters[k].comment, strlen(filters[k].comment), &len);
 		if(!len)
 			break;
 		ARRAY_APPEND(winfilts, g_wbuf, len, 1, 1);
 
 		UTF8TOWCHAR(filters[k].ext, strlen(filters[k].ext), g_wbuf, g_buf_size, len);
-		//str=multibyte2wide(filters[k].ext, strlen(filters[k].ext), &len);
 		if(!len)
 			break;
-		ARRAY_APPEND(winfilts, str, len, 1, 1);
+		ARRAY_APPEND(winfilts, g_wbuf, len, 1, 1);
 	}
 
 	g_wbuf[0]=0;
@@ -470,7 +487,7 @@ const char*			dialog_open_file(Filter *filters, int nfilters, int multiple)//TOD
 	{
 		sizeof(OPENFILENAMEW),
 		ghWnd, ghInstance,
-		&WSTR_AT(winfilts), 0, 0, 1,
+		&WSTR_AT(winfilts, 0), 0, 0, 1,
 		g_wbuf, g_buf_size,
 		0, 0,//initial filename
 		0,
@@ -1075,6 +1092,7 @@ long __stdcall		WndProc(HWND hWnd, unsigned int message, unsigned int wParam, lo
 }
 int __stdcall		WinMain(HINSTANCE hInstance, HINSTANCE hPrev, char *pCmdLine, int nCmdShow)
 {
+	ghInstance=hInstance;
 	WNDCLASSEXA wndClassEx=
 	{
 		sizeof(WNDCLASSEXA), CS_HREDRAW|CS_VREDRAW|CS_DBLCLKS,

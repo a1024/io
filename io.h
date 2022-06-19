@@ -127,7 +127,7 @@ const void*		array_back_const(ArrayHandle const *arr);
 #else
 #define			ARRAY_ALLOC(ELEM_TYPE, ARR, COUNT, PAD)				ARR=array_construct(0, sizeof(ELEM_TYPE), COUNT, 1, PAD, __LINE__)
 #endif
-#define			ARRAY_APPEND(ARR, DATA, COUNT, REP, PAD)	array_insert(&(ARR), array_size(&(ARR)), DATA, COUNT, REP, PAD)
+#define			ARRAY_APPEND(ARR, DATA, COUNT, REP, PAD)			array_insert(&(ARR), array_size(&(ARR)), DATA, COUNT, REP, PAD)
 #define			ARRAY_DATA(ARR)			(ARR)->data
 #define			ARRAY_I(ARR, IDX)		*(int*)array_at(&ARR, IDX)
 #define			ARRAY_U(ARR, IDX)		*(unsigned*)array_at(&ARR, IDX)
