@@ -175,11 +175,11 @@ static void count_active_keys(IOKey upkey)
 }
 Filter file_filters[]=
 {
-	{"Text files", "*.txt"},
-	{"C source files", "*.c"},
-	{"C++ source files", "*.cpp"},
-	{"Header files", "*.h"},
-	{"All files", "*.*"},
+	{"Text files (*.txt)",			"*.txt"},
+	{"C source files (*.c)",		"*.c"},
+	{"C++ source files (*.cpp)",	"*.cpp"},
+	{"Header files (*.h)",			"*.h"},
+	{"All files",					"*.*"},
 };
 int io_keydn(IOKey key, char c)
 {

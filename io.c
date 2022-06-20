@@ -463,7 +463,7 @@ ArrayHandle			dialog_open_folder(int multiple)
 	OleUninitialize();
 	return arr;
 }
-ArrayHandle			dialog_open_file(Filter *filters, int nfilters, int multiple)//TODO: multiple
+static ArrayHandle	prep_filters(Filter *filters, int nfilters)
 {
 	ArrayHandle winfilts=0;
 	ARRAY_ALLOC(wchar_t, winfilts, 0, 1);
@@ -471,16 +471,29 @@ ArrayHandle			dialog_open_file(Filter *filters, int nfilters, int multiple)//TOD
 	{
 		int len=0;
 
-		UTF8TOWCHAR(filters[k].comment, strlen(filters[k].comment), g_wbuf, g_buf_size, len);
+		UTF8TOWCHAR(filters[k].comment, strlen(filters[k].comment)+1, g_wbuf, g_buf_size, len);
 		if(!len)
 			break;
 		ARRAY_APPEND(winfilts, g_wbuf, len, 1, 1);
 
-		UTF8TOWCHAR(filters[k].ext, strlen(filters[k].ext), g_wbuf, g_buf_size, len);
+		UTF8TOWCHAR(filters[k].ext, strlen(filters[k].ext)+1, g_wbuf, g_buf_size, len);
 		if(!len)
 			break;
 		ARRAY_APPEND(winfilts, g_wbuf, len, 1, 1);
 	}
+	g_wbuf[0]=0;
+	ARRAY_APPEND(winfilts, g_wbuf, 1, 1, 1);
+	//console_show();
+	//for(size_t k=0;k<array_size(&winfilts);++k)
+	//{
+	//	unsigned short c=*(unsigned short*)array_at(&winfilts, k);
+	//	printf("%d %04X %c\n", (int)k, c, (char)c);
+	//}
+	return winfilts;
+}
+ArrayHandle			dialog_open_file(Filter *filters, int nfilters, int multiple)//TODO: multiple
+{
+	ArrayHandle winfilts=prep_filters(filters, nfilters), result=0;
 
 	g_wbuf[0]=0;
 	OPENFILENAMEW ofn=
@@ -492,7 +505,7 @@ ArrayHandle			dialog_open_file(Filter *filters, int nfilters, int multiple)//TOD
 		0, 0,//initial filename
 		0,
 		0,//dialog title
-		OFN_CREATEPROMPT|OFN_PATHMUSTEXIST,
+		OFN_CREATEPROMPT|OFN_PATHMUSTEXIST,//flags
 		0,//file offset
 		0,//extension offset
 		L"txt",//default extension
@@ -502,31 +515,42 @@ ArrayHandle			dialog_open_file(Filter *filters, int nfilters, int multiple)//TOD
 		0,//reserved
 		0,//flags ex
 	};
+	//if(multiple)
+	//	ofn.Flags|=OFN_ALLOWMULTISELECT;
 	int success=GetOpenFileNameW(&ofn);
 	array_free(&winfilts);
 	if(!success)
 		return 0;
 
-	int len=WideCharToMultiByte(CP_UTF8, 0, ofn.lpstrFile, wcslen(ofn.lpstrFile), g_buf, g_buf_size, 0, 0);	SYS_ASSERT(len);
-	if(!len)
-		return 0;
-	g_buf[len]='\0';
-	return g_buf;
+	int wlen=0;
+	if(multiple)
+	{
+		for(;wlen<g_buf_size;++wlen)
+			if(ofn.lpstrFile[wlen]=='\0'&&ofn.lpstrFile[wlen]=='\0')
+				break;
+	}
+	else
+		wlen=wcslen(ofn.lpstrFile);
+	return result;
+
+	//int len=WideCharToMultiByte(CP_UTF8, 0, ofn.lpstrFile, wcslen(ofn.lpstrFile), g_buf, g_buf_size, 0, 0);	SYS_ASSERT(len);
+	//if(!len)
+	//	return 0;
+	//g_buf[len]='\0';
+	//return g_buf;
 }
 const wchar_t		initialname[]=L"Untitled.txt";
 const char*			dialog_save_file(Filter *filters, int nfilters)
 {
+	ArrayHandle winfilts=prep_filters(filters, nfilters);
+
 	memcpy(g_wbuf, initialname, sizeof(initialname));
 	//g_wbuf[0]=0;
 	OPENFILENAMEW ofn=
 	{
 		sizeof(OPENFILENAMEW), ghWnd, ghInstance,
 		
-		L"Text File (.txt)\0*.txt\0"	//<- filter
-		L"C++ Source (.cpp; .cc; .cxx)\0*.cpp\0"
-		L"C Source (.c)\0*.c\0"
-		L"C/C++ Header (.h; .hpp)\0*.h\0",
-	//	L"No Extension\0*\0",
+		&WSTR_AT(winfilts, 0),	//<- filter
 		
 		0, 0,//custom filter & count
 		1,								//<- initial filter index
@@ -543,18 +567,21 @@ const char*			dialog_save_file(Filter *filters, int nfilters)
 		0,//flags ex
 	};
 	int success=GetSaveFileNameW(&ofn);
+	array_free(&winfilts);
 	if(!success)
 		return 0;
 
-	//char c[]="?";
-	//int invalid=false;
-	int len=WideCharToMultiByte(CP_UTF8, 0, ofn.lpstrFile, wcslen(ofn.lpstrFile), g_buf, g_buf_size, 0, 0);	SYS_ASSERT(len);
+	int len;
+	WCHARTOUTF8(ofn.lpstrFile, wcslen(ofn.lpstrFile)+1, g_buf, g_buf_size, len);
 	if(!len)
 		return 0;
-	g_buf[len]='\0';
 	return g_buf;
-	//memcpy(g_wbuf, ofn.lpstrFile, wcslen(ofn.lpstrFile)*sizeof(wchar_t));
-	//return g_wbuf;
+
+	//int len=WideCharToMultiByte(CP_UTF8, 0, ofn.lpstrFile, wcslen(ofn.lpstrFile), g_buf, g_buf_size, 0, 0);	SYS_ASSERT(len);
+	//if(!len)
+	//	return 0;
+	//g_buf[len]='\0';
+	//return g_buf;
 }
 
 void				copy_to_clipboard_c(const char *a, int size)//size not including null terminator
