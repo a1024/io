@@ -181,6 +181,7 @@ Filter file_filters[]=
 	{"Header files (*.h)",			"*.h"},
 	{"All files",					"*.*"},
 };
+const char initialname[]="Untitled.txt";
 int io_keydn(IOKey key, char c)
 {
 	switch(key)
@@ -188,7 +189,7 @@ int io_keydn(IOKey key, char c)
 	case 'S':
 		if(keyboard[KEY_CTRL])
 		{
-			savedfile=dialog_save_file(file_filters, SIZEOF(file_filters));
+			savedfile=dialog_save_file(file_filters, SIZEOF(file_filters), initialname);
 			return true;
 		}
 		break;

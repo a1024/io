@@ -544,7 +544,7 @@ typedef struct FilterStruct
 } Filter;
 ArrayHandle	dialog_open_folder(int multiple);//utf-8, free array of strings after use
 ArrayHandle	dialog_open_file(Filter *filters, int nfilters, int multiple);//utf-8, free array of strings after use
-const char*	dialog_save_file(Filter *filters, int nfilters);//utf-8
+const char*	dialog_save_file(Filter *filters, int nfilters, const char *initialname);//utf-8, free string after use
 #define		FREE_ARRAY_OF_POINTERS(ARR, TEMP_2I)\
 	do\
 	{\

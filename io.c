@@ -515,7 +515,7 @@ ArrayHandle			dialog_open_file(Filter *filters, int nfilters, int multiple)//TOD
 		0,//reserved
 		0,//flags ex
 	};
-	//if(multiple)
+	//if(multiple)//CRASHES
 	//	ofn.Flags|=OFN_ALLOWMULTISELECT;
 	int success=GetOpenFileNameW(&ofn);
 	array_free(&winfilts);
@@ -539,13 +539,19 @@ ArrayHandle			dialog_open_file(Filter *filters, int nfilters, int multiple)//TOD
 	//g_buf[len]='\0';
 	//return g_buf;
 }
-const wchar_t		initialname[]=L"Untitled.txt";
-const char*			dialog_save_file(Filter *filters, int nfilters)
+//const wchar_t		initialname[]=L"Untitled.txt";
+const char*			dialog_save_file(Filter *filters, int nfilters, const char *initialname)
 {
 	ArrayHandle winfilts=prep_filters(filters, nfilters);
+	
+	int len0=strlen(initialname), ext_offset=0;
+	int len=0;
+	wchar_t def_ext[16]={0};//default extension
+	UTF8TOWCHAR(initialname, len0+1, g_wbuf, g_buf_size, len);
+	for(ext_offset=len0-1;ext_offset>=0&&initialname[ext_offset]!='.';--ext_offset);
+	memcpy(def_ext, g_wbuf+ext_offset, (len0+1-ext_offset)*sizeof(wchar_t));
+	//memcpy(g_wbuf, initialname, sizeof(initialname));
 
-	memcpy(g_wbuf, initialname, sizeof(initialname));
-	//g_wbuf[0]=0;
 	OPENFILENAMEW ofn=
 	{
 		sizeof(OPENFILENAMEW), ghWnd, ghInstance,
@@ -559,8 +565,8 @@ const char*			dialog_save_file(Filter *filters, int nfilters)
 		0,
 		0,//dialog title
 		OFN_NOTESTFILECREATE|OFN_PATHMUSTEXIST|OFN_EXTENSIONDIFFERENT|OFN_OVERWRITEPROMPT,
-		0, 8,							//<- file offset & extension offset
-		L"txt",							//<- default extension (if user didn't type one)
+		0, ext_offset,					//<- file offset & extension offset
+		def_ext,						//<- default extension (if user didn't type one)
 		0, 0,//data & hook
 		0,//template name
 		0, 0,//reserved
@@ -571,11 +577,12 @@ const char*			dialog_save_file(Filter *filters, int nfilters)
 	if(!success)
 		return 0;
 
-	int len;
-	WCHARTOUTF8(ofn.lpstrFile, wcslen(ofn.lpstrFile)+1, g_buf, g_buf_size, len);
+	int retlen=wcslen(ofn.lpstrFile)+1;
+	char *ret=(char*)malloc(retlen+16);
+	WCHARTOUTF8(ofn.lpstrFile, retlen, ret, retlen+16, len);
 	if(!len)
 		return 0;
-	return g_buf;
+	return ret;
 
 	//int len=WideCharToMultiByte(CP_UTF8, 0, ofn.lpstrFile, wcslen(ofn.lpstrFile), g_buf, g_buf_size, 0, 0);	SYS_ASSERT(len);
 	//if(!len)
@@ -1099,7 +1106,7 @@ long __stdcall		WndProc(HWND hWnd, unsigned int message, unsigned int wParam, lo
 		}
 		else if(io_keydn(wParam, 0))
 			InvalidateRect(hWnd, 0, 0);
-		keyboard[wParam]=1;
+		keyboard[wParam]=get_key_state(wParam);
 		break;
 	case WM_KEYUP:
 	case WM_SYSKEYUP:
@@ -1472,7 +1479,7 @@ ArrayHandle	dialog_open_file(Filter *filters, int nfilters, int multiple)
 {
 	return osdialog_file(OSDIALOG_OPENFILE, filters, nfilters, multiple);
 }
-const char*	dialog_save_file(Filter *filters, int nfilters)
+const char* dialog_save_file(Filter *filters, int nfilters, const char *initialname)
 {
 	ArrayHandle arr=osdialog_file(OSDIALOG_SAVEFILE, filters, nfilters, 0);
 	char *filename=0;
