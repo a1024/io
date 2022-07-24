@@ -134,12 +134,7 @@ void io_resize()
 }
 int io_mousemove()//return true to redraw
 {
-//#ifdef __linux__
 	if(drag)
-//#else
-//	mouse_bypass=!mouse_bypass;
-//	if(drag&&mouse_bypass)
-//#endif
 	{
 		int X0=w>>1, Y0=h>>1;
 		cam_turnMouse(cam, mx-X0, my-Y0, mouse_sensitivity);
@@ -239,6 +234,26 @@ int io_keydn(IOKey key, char c)
 				openfiles=dialog_open_file(file_filters, SIZEOF(file_filters), true);
 		}
 		return true;
+	case KEY_F1:
+		messagebox(MBOX_OK, "Controls",
+			"Left button:\tToggle mouse look\n"
+			"WASDTG:\t\tMove around\n"
+			"Shift+WASDTG:\tMove around fast\n"
+			"Arrows:\t\tTurn camera\n"
+			"Enter/Backspace:\tZoom\n"
+			"R:\t\tReset camera\n"
+			"E:\t\tToggle wireframe\n"
+			"\n"
+			"Ctrl+S:\tDummy \'Save as\' dialog\n"
+			"Ctrl+O:\tDummy \'Open file\' dialog\n"
+			"\n"
+			"F1:\tShow controls (this box)\n"
+			"F4:\tToggle profiler\n"
+			"\n"
+			"Build %s, %s",
+			__DATE__, __TIME__
+		);
+		break;
 	case KEY_F4:
 		prof_on=!prof_on;
 		return true;
@@ -290,7 +305,7 @@ void io_timer()
 	if(keyboard[KEY_ENTER])	cam_zoomIn(cam, 1.1f);
 	if(keyboard[KEY_BKSP])	cam_zoomOut(cam, 1.1f);
 }
-static void draw_line_3d(float *p1, float *p2, int color)
+/*static void draw_line_3d(float *p1, float *p2, int color)
 {
 	float cp[3], temp1[3], s1[2], s2[2];
 	int X0=w>>1, Y0=h>>1;
@@ -306,7 +321,7 @@ static void draw_line_3d(float *p1, float *p2, int color)
 	cam_cam2screen(cam, cp, s2, X0, Y0);
 
 	draw_line(s1[0], s1[1], s2[0], s2[1], color);
-}
+}//*/
 void io_render()
 {
 	prof_add("entry");
@@ -325,13 +340,16 @@ void io_render()
 	float axes[]=
 	{
 		0, 0, 0,
-		1, 0, 0,
-		0, 1, 0,
-		0, 0, 1,
+		10, 0, 0,
+		0, 10, 0,
+		0, 0, 10,
 	};
-	draw_line_3d(axes, axes+1, 0xFF0000FF);
-	draw_line_3d(axes, axes+2, 0xFF00FF00);
-	draw_line_3d(axes, axes+3, 0xFFFF0000);
+	draw_3d_line(&cam, axes, axes+3, 0xFF0000FF);//x-axis
+	draw_3d_line(&cam, axes, axes+6, 0xFF00FF00);//y-axis
+	draw_3d_line(&cam, axes, axes+9, 0xFFFF0000);//z-axis
+	//draw_line_3d(axes, axes+3, 0xFF0000FF);
+	//draw_line_3d(axes, axes+6, 0xFF00FF00);
+	//draw_line_3d(axes, axes+9, 0xFFFF0000);
 	if(wireframe)
 		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 	draw_L3D(&cam, &gpu_teapot, modelPos, lightPos, 0x80C0FF);
@@ -356,6 +374,7 @@ void io_render()
 		draw_line_3d(tr+6, tr, wireColor);
 	}
 #endif
+	depth_test(false);
 	GUIPrint(0, 0, 0, 1, "p(%f, %f, %f) a(%f, %f) fov %f", cam.x, cam.y, cam.z, cam.ax, cam.ay, atan(cam.tanfov)*todeg*2);
 	GUIPrint(0, 0, tdy, 1, "timer %d, rand %d", timer, rand());
 	float y=tdy*3;
@@ -384,6 +403,7 @@ void io_render()
 	}
 	draw_line_i(rand()%w, rand()%h, rand()%w, rand()%h, 0xFF000000|rand()<<15|rand());
 #endif
+	depth_test(true);
 	prof_add("finish");
 }
 int io_quit_request()//return 1 to exit

@@ -869,6 +869,10 @@ typedef struct GPUModelStruct
 void gpubuf_send_VNT(GPUModel *dst, const float *VVVNNNTT, int n_floats, const int *indices, int n_ints);
 void draw_L3D(Camera const *cam, GPUModel const *model, const float *modelpos, const float *lightpos, int lightcolor);
 
+void draw_3d_line(Camera const *cam, const float *w1, const float *w2, int color);//world coordinates
+
+void depth_test(int enable);
+
 #endif//NO_3D
 
 

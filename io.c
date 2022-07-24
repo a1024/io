@@ -2313,6 +2313,7 @@ void				prof_print()
 	if(prof_on)
 	{
 		float xpos=(float)(w-400), xpos2=(float)(w-200);
+		depth_test(0);
 		for(int k=0, kEnd=array_size(&prof);k<kEnd;++k)
 		{
 			ProfInfo *p=(ProfInfo*)array_at(&prof, k);
@@ -2326,6 +2327,7 @@ void				prof_print()
 		double t2=time_ms();
 		GUIPrint(xpos, xpos, (array_size(&prof)+1)*tdy, 1, "fps=%lf, T=%lfms", 1000/(t2-t1), t2-t1);
 		t1=t2;
+		depth_test(1);
 
 		array_clear(&prof);
 	}
@@ -2622,6 +2624,15 @@ int					init_gl()
 #endif
 	return 1;
 }
+#ifndef NO_3D
+void				depth_test(int enable)
+{
+	if(enable)
+		glEnable(GL_DEPTH_TEST);
+	else
+		glDisable(GL_DEPTH_TEST);
+}
+#endif
 
 //immediate drawing functions
 float				g_fbuf[16]={0};
@@ -2642,14 +2653,14 @@ void				draw_line(float x1, float y1, float x2, float y2, int color)
 //	glBindBuffer(GL_ARRAY_BUFFER, 0);										GL_CHECK();
 //	glVertexAttribPointer(a_2D_coords, 2, GL_FLOAT, GL_FALSE, 0, g_fbuf);	GL_CHECK();
 
-#ifndef NO_3D
-	glDisable(GL_DEPTH_TEST);
-#endif
+//#ifndef NO_3D
+//	glDisable(GL_DEPTH_TEST);
+//#endif
 	glDrawArrays(GL_LINES, 0, 2);			GL_CHECK();
 	glDisableVertexAttribArray(a_2D_coords);GL_CHECK();
-#ifndef NO_3D
-	glEnable(GL_DEPTH_TEST);
-#endif
+//#ifndef NO_3D
+//	glEnable(GL_DEPTH_TEST);
+//#endif
 }
 void				draw_line_i(int x1, int y1, int x2, int y2, int color){draw_line((float)x1, (float)y1, (float)x2, (float)y2, color);}
 void				draw_rectangle(float x1, float x2, float y1, float y2, int color)
@@ -2674,14 +2685,14 @@ void				draw_rectangle(float x1, float x2, float y1, float y2, int color)
 //	glBindBuffer(GL_ARRAY_BUFFER, 0);										GL_CHECK();
 //	glVertexAttribPointer(a_2D_coords, 2, GL_FLOAT, GL_FALSE, 0, g_fbuf);	GL_CHECK();
 	
-#ifndef NO_3D
-	glDisable(GL_DEPTH_TEST);
-#endif
+//#ifndef NO_3D
+//	glDisable(GL_DEPTH_TEST);
+//#endif
 	glDrawArrays(GL_TRIANGLE_FAN, 0, 5);	GL_CHECK();
 	glDisableVertexAttribArray(a_2D_coords);GL_CHECK();
-#ifndef NO_3D
-	glEnable(GL_DEPTH_TEST);
-#endif
+//#ifndef NO_3D
+//	glEnable(GL_DEPTH_TEST);
+//#endif
 }
 void				draw_rectangle_i(int x1, int x2, int y1, int y2, int color){draw_rectangle((float)x1, (float)x2, (float)y1, (float)y2, color);}
 void				draw_rectangle_hollow(float x1, float x2, float y1, float y2, int color)
@@ -2705,14 +2716,14 @@ void				draw_rectangle_hollow(float x1, float x2, float y1, float y2, int color)
 //	glBindBuffer(GL_ARRAY_BUFFER, 0);										GL_CHECK();
 //	glVertexAttribPointer(a_2D_coords, 2, GL_FLOAT, GL_FALSE, 0, g_fbuf);	GL_CHECK();
 	
-#ifndef NO_3D
-	glDisable(GL_DEPTH_TEST);
-#endif
+//#ifndef NO_3D
+//	glDisable(GL_DEPTH_TEST);
+//#endif
 	glDrawArrays(GL_LINE_LOOP, 0, 4);		GL_CHECK();
 	glDisableVertexAttribArray(a_2D_coords);GL_CHECK();
-#ifndef NO_3D
-	glEnable(GL_DEPTH_TEST);
-#endif
+//#ifndef NO_3D
+//	glEnable(GL_DEPTH_TEST);
+//#endif
 }
 
 float				*vrtx=0;
@@ -2776,14 +2787,14 @@ void				draw_ellipse(float x1, float x2, float y1, float y2, int color)
 //	glBindBuffer(GL_ARRAY_BUFFER, 0);		GL_CHECK();
 //	glVertexAttribPointer(a_2D_coords, 2, GL_FLOAT, GL_FALSE, 0, vrtx);	GL_CHECK();
 	
-#ifndef NO_3D
-	glDisable(GL_DEPTH_TEST);
-#endif
+//#ifndef NO_3D
+//	glDisable(GL_DEPTH_TEST);
+//#endif
 	glDrawArrays(GL_LINES, 0, nlines*2);	GL_CHECK();
 	glDisableVertexAttribArray(a_2D_coords);GL_CHECK();
-#ifndef NO_3D
-	glEnable(GL_DEPTH_TEST);
-#endif
+//#ifndef NO_3D
+//	glEnable(GL_DEPTH_TEST);
+//#endif
 }
 
 //text API
@@ -2892,9 +2903,9 @@ float				print_line(float tab_origin, float x, float y, float zoom, const char *
 		}
 		if(printable_count)
 		{
-#ifndef NO_3D
-			glDisable(GL_DEPTH_TEST);
-#endif
+//#ifndef NO_3D
+//			glDisable(GL_DEPTH_TEST);
+//#endif
 			if(sdf_active)
 			{
 				setGLProgram(shader_sdftext.program);
@@ -2928,9 +2939,9 @@ float				print_line(float tab_origin, float x, float y, float zoom, const char *
 				glDrawArrays(GL_QUADS, 0, printable_count<<2);	GL_CHECK();//draw the quads: 4 vertices per character quad
 				glDisableVertexAttribArray(a_text_coords);		GL_CHECK();
 			}
-#ifndef NO_3D
-			glEnable(GL_DEPTH_TEST);
-#endif
+//#ifndef NO_3D
+//			glEnable(GL_DEPTH_TEST);
+//#endif
 		}
 	}
 	if(ret_idx)
@@ -3008,15 +3019,15 @@ void			display_texture_i(int x1, int x2, int y1, int y2, int *rgb, int txw, int 
 
 		glVertexAttribPointer(a_texture_coords, 4, GL_FLOAT, GL_FALSE, 4<<2, (void*)0);		GL_CHECK();//select vertices & texcoord
 
-#ifndef NO_3D
-		glDisable(GL_DEPTH_TEST);
-#endif
+//#ifndef NO_3D
+//		glDisable(GL_DEPTH_TEST);
+//#endif
 		glEnableVertexAttribArray(a_texture_coords);	GL_CHECK();
 		glDrawArrays(GL_QUADS, 0, 4);					GL_CHECK();//draw the quad
 		glDisableVertexAttribArray(a_texture_coords);	GL_CHECK();
-#ifndef NO_3D
-		glEnable(GL_DEPTH_TEST);
-#endif
+//#ifndef NO_3D
+//		glEnable(GL_DEPTH_TEST);
+//#endif
 #ifdef NPOT_ATIX2300_FIX
 		if(expand)
 			free(rgb2);
@@ -3169,7 +3180,7 @@ void			draw_L3D(Camera const *cam, GPUModel const *model, const float *modelpos,
 //	glBindVertexArray(s_VAO);						GL_CHECK();
 
 	select_texture(model->txid, u_L3D_texture);
-		
+	
 	glBindBuffer(GL_ARRAY_BUFFER, model->VBO);			GL_CHECK();
 	glEnableVertexAttribArray(a_L3D_vertex);			GL_CHECK();
 	glVertexAttribPointer(a_L3D_vertex, 3, GL_FLOAT, GL_FALSE, model->stride, (void*)(long long)model->vertices_start);	GL_CHECK();
@@ -3183,5 +3194,61 @@ void			draw_L3D(Camera const *cam, GPUModel const *model, const float *modelpos,
 	glDisableVertexAttribArray(a_L3D_vertex);			GL_CHECK();
 	glDisableVertexAttribArray(a_L3D_normal);			GL_CHECK();
 	glDisableVertexAttribArray(a_L3D_texcoord);			GL_CHECK();
+}
+
+void			draw_3d_line(Camera const *cam, const float *w1, const float *w2, int color)
+{
+	static unsigned txid=0;
+	int bitmap[4]=
+	{
+		color, color,
+		color, color,
+	};
+	float mView[16], mProj[16], mVP[16];
+	__m128 temp1;
+
+	//prepare texture
+	if(!txid)
+		glGenTextures(1, &txid);
+	send_texture_pot(txid, bitmap, 2, 2);
+	
+	//prepare coords
+	vrtx_resize(2, 5);
+	vrtx[0]=-w1[0];
+	vrtx[1]=-w1[1];
+	vrtx[2]=w1[2];
+	//memcpy(vrtx, w1, 3*sizeof(float));
+	vrtx[3]=0;
+	vrtx[4]=0;
+	
+	vrtx[5]=-w2[0];
+	vrtx[6]=-w2[1];
+	vrtx[7]=w2[2];
+	//memcpy(vrtx+5, w2, 3*sizeof(float));
+	vrtx[8]=0;
+	vrtx[9]=0;
+	
+	//prepare matrix
+	mat4_FPSView(mView, &cam->x, cam->ax, cam->ay);
+	mat4_perspective(mProj, cam->tanfov, (float)(w)/h, 0.1f, 1000.f);
+	mat4_mul_mat4(mVP, mProj, mView, temp1);
+
+	setGLProgram(shader_3D.program);
+
+	select_texture(txid, u_3D_texture);
+	
+	glUniformMatrix4fv(u_3D_matrix, 1, GL_FALSE, mVP);	GL_CHECK();
+	
+	glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);		GL_CHECK();
+	glBufferData(GL_ARRAY_BUFFER, 2*5*sizeof(float), vrtx, GL_STATIC_DRAW);	GL_CHECK();//send vertices & texcoords
+	glVertexAttribPointer(a_3D_vertex, 3, GL_FLOAT, GL_FALSE, 5*sizeof(float), (void*)0);					GL_CHECK();//select vertices & texcoords
+	glVertexAttribPointer(a_3D_texcoord, 2, GL_FLOAT, GL_FALSE, 5*sizeof(float), (void*)(3*sizeof(float)));	GL_CHECK();
+	glEnableVertexAttribArray(a_3D_vertex);		GL_CHECK();
+	glEnableVertexAttribArray(a_3D_texcoord);	GL_CHECK();
+
+	glDrawArrays(GL_LINES, 0, 2);				GL_CHECK();
+
+	glDisableVertexAttribArray(a_3D_vertex);	GL_CHECK();
+	glDisableVertexAttribArray(a_3D_texcoord);	GL_CHECK();
 }
 #endif
