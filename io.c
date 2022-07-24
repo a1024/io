@@ -35,7 +35,7 @@ char				timer=0, keyboard[256]={0};
 static char			mouse_bypass=0;
 
 char				g_buf[g_buf_size]={0};
-#if defined _MSC_VER|| defined _WIN32 || defined _WINDOWS
+#if defined _MSC_VER || defined _WIN32 || defined _WINDOWS
 wchar_t				g_wbuf[g_buf_size]={0};
 #endif
 char				*exe_dir=0;
@@ -312,7 +312,7 @@ void				console_show()//https://stackoverflow.com/questions/191842/how-do-i-get-
 	{
 		console_active=1;
 		int hConHandle;
-		long lStdHandle;
+		intptr_t lStdHandle;
 		CONSOLE_SCREEN_BUFFER_INFO coninfo;
 		FILE *fp;
 
@@ -325,21 +325,21 @@ void				console_show()//https://stackoverflow.com/questions/191842/how-do-i-get-
 		SetConsoleScreenBufferSize(GetStdHandle(STD_OUTPUT_HANDLE), coninfo.dwSize);
 
 		//redirect unbuffered STDOUT to the console
-		lStdHandle=(long)GetStdHandle(STD_OUTPUT_HANDLE);
+		lStdHandle=(intptr_t)GetStdHandle(STD_OUTPUT_HANDLE);
 		hConHandle=_open_osfhandle(lStdHandle, _O_TEXT);
 		fp=_fdopen(hConHandle, "w");
 		*stdout=*fp;
 		setvbuf(stdout, 0, _IONBF, 0);
 
 		//redirect unbuffered STDIN to the console
-		lStdHandle=(long)GetStdHandle(STD_INPUT_HANDLE);
+		lStdHandle=(intptr_t)GetStdHandle(STD_INPUT_HANDLE);
 		hConHandle=_open_osfhandle(lStdHandle, _O_TEXT);
 		fp=_fdopen(hConHandle, "r");
 		*stdin=*fp;
 		setvbuf(stdin, 0, _IONBF, 0);
 
 		//redirect unbuffered STDERR to the console
-		lStdHandle=(long)GetStdHandle(STD_ERROR_HANDLE);
+		lStdHandle=(intptr_t)GetStdHandle(STD_ERROR_HANDLE);
 		hConHandle=_open_osfhandle(lStdHandle, _O_TEXT);
 		fp=_fdopen(hConHandle, "w");
 		*stderr=*fp;
@@ -421,6 +421,12 @@ int					messagebox(MessageBoxType type, const char *title, const char *format, .
 	return result;
 }
 
+void				free_pchar(void *data)
+{
+	char **str=(char**)data;
+	free(*str);
+	*str=0;
+}
 ArrayHandle			dialog_open_folder(int multiple)
 {
 	ArrayHandle arr=0;
@@ -432,7 +438,7 @@ ArrayHandle			dialog_open_folder(int multiple)
 		return 0;
 	}
 	IID fileOpenDialogIID={0xD57C7288, 0xD4AD, 0x4768, {0xBE, 0x02, 0x9D, 0x96, 0x95, 0x32, 0xD9, 0x60}};//IFileOpenDialog
-	hr=CoCreateInstance(&CLSID_FileOpenDialog, 0, CLSCTX_INPROC_SERVER, &fileOpenDialogIID, &pFileOpenDialog);
+	hr=CoCreateInstance(&CLSID_FileOpenDialog, 0, CLSCTX_INPROC_SERVER, &fileOpenDialogIID, (void*)&pFileOpenDialog);
 	if(SUCCEEDED(hr))
 	{
 		int success=0, len=0;
@@ -451,10 +457,12 @@ ArrayHandle			dialog_open_folder(int multiple)
 			hr=CALL_METHOD(pFileOpenDialog, GetResult, &pShellItem);
 			CALL_METHOD(pShellItem, GetDisplayName, SIGDN_FILESYSPATH, &fullpath);
 			WCHARTOUTF8(fullpath, wcslen(fullpath), g_buf, g_buf_size, len);
-			char *path=(char*)malloc(len+1);
-			memcpy(path, g_buf, len+1);
-			ARRAY_ALLOC(char*, arr, 0, 0);
-			ARRAY_APPEND(arr, path, 1, 1, 0);
+
+			ARRAY_ALLOC(char*, arr, 1, 0, free_pchar);
+			char **path=(char**)array_at(&arr, 0);
+			*path=(char*)malloc(len+1);
+			memcpy(*path, g_buf, len+1);
+
 			CoTaskMemFree(fullpath);
 		}
 		CALL_METHOD(pFileOpenDialog, Release);
@@ -466,7 +474,7 @@ ArrayHandle			dialog_open_folder(int multiple)
 static ArrayHandle	prep_filters(Filter *filters, int nfilters)
 {
 	ArrayHandle winfilts=0;
-	ARRAY_ALLOC(wchar_t, winfilts, 0, 1);
+	WSTR_ALLOC(winfilts, 0);
 	for(int k=0;k<nfilters;++k)
 	{
 		int len=0;
@@ -474,21 +482,25 @@ static ArrayHandle	prep_filters(Filter *filters, int nfilters)
 		UTF8TOWCHAR(filters[k].comment, strlen(filters[k].comment)+1, g_wbuf, g_buf_size, len);
 		if(!len)
 			break;
-		ARRAY_APPEND(winfilts, g_wbuf, len, 1, 1);
+		STR_APPEND(winfilts, g_wbuf, len, 1);
+		//ARRAY_APPEND(winfilts, g_wbuf, len, 1, 1);
 
 		UTF8TOWCHAR(filters[k].ext, strlen(filters[k].ext)+1, g_wbuf, g_buf_size, len);
 		if(!len)
 			break;
-		ARRAY_APPEND(winfilts, g_wbuf, len, 1, 1);
+		STR_APPEND(winfilts, g_wbuf, len, 1);
+		//ARRAY_APPEND(winfilts, g_wbuf, len, 1, 1);
 	}
-	g_wbuf[0]=0;
-	ARRAY_APPEND(winfilts, g_wbuf, 1, 1, 1);
+	//g_wbuf[0]=0;
+	//ARRAY_APPEND(winfilts, g_wbuf, 1, 1, 1);
+
 	//console_show();
 	//for(size_t k=0;k<array_size(&winfilts);++k)
 	//{
 	//	unsigned short c=*(unsigned short*)array_at(&winfilts, k);
 	//	printf("%d %04X %c\n", (int)k, c, (char)c);
 	//}
+
 	return winfilts;
 }
 ArrayHandle			dialog_open_file(Filter *filters, int nfilters, int multiple)//TODO: multiple
@@ -1020,7 +1032,7 @@ void				timer_stop()
 	if(timer)
 		KillTimer(ghWnd, 0), timer=0;
 }
-long __stdcall		WndProc(HWND hWnd, unsigned int message, unsigned int wParam, long lParam)
+LRESULT __stdcall		WndProc(HWND hWnd, unsigned message, WPARAM wParam, LPARAM lParam)
 {
 	switch(message)
 	{
@@ -1180,10 +1192,15 @@ int __stdcall		WinMain(HINSTANCE hInstance, HINSTANCE hPrev, char *pCmdLine, int
 
 	//load extended OpenGL API
 #if 1
+#ifdef __GNUC__
+#define	GET_GL_FUNC(glFunc)				glFunc=(typeof(glFunc))wglGetProcAddress(#glFunc), (glFunc!=0||sys_check(file, __LINE__, #glFunc " == nullptr"))
+#define	GET_GL_FUNC_UNCHECKED(glFunc)	glFunc=(typeof(glFunc))wglGetProcAddress(#glFunc)
+#else
 #pragma warning(push)
 #pragma warning(disable:4113)
 #define	GET_GL_FUNC(glFunc)				glFunc=wglGetProcAddress(#glFunc), (glFunc!=0||sys_check(file, __LINE__, #glFunc " == nullptr"))
 #define	GET_GL_FUNC_UNCHECKED(glFunc)	glFunc=wglGetProcAddress(#glFunc)
+#endif
 	GET_GL_FUNC(glBlendEquation);
 //	GET_GL_FUNC(glGenVertexArrays);//OpenGL 3.0
 //	GET_GL_FUNC(glDeleteVertexArrays);//OpenGL 3.0
@@ -2073,7 +2090,7 @@ static void		array_realloc(ArrayHandle *arr, size_t count, size_t pad)//CANNOT b
 }
 
 //Array API
-ArrayHandle		array_construct(const void *src, size_t esize, size_t count, size_t rep, size_t pad, DebugInfo debug_info)
+ArrayHandle		array_construct(const void *src, size_t esize, size_t count, size_t rep, size_t pad, void (*destructor)(void*))
 {
 	ArrayHandle arr;
 	size_t srcsize, dstsize, cap;
@@ -2086,7 +2103,7 @@ ArrayHandle		array_construct(const void *src, size_t esize, size_t count, size_t
 	arr->count=count;
 	arr->esize=esize;
 	arr->cap=cap;
-	arr->debug_info=debug_info;
+	arr->destructor=destructor;
 	if(src)
 	{
 		ASSERT_P(src);
@@ -2096,7 +2113,7 @@ ArrayHandle		array_construct(const void *src, size_t esize, size_t count, size_t
 		memset(arr->data+dstsize, 0, cap-dstsize);
 	return arr;
 }
-ArrayHandle		array_copy(ArrayHandle *arr, DebugInfo debug_info)
+ArrayHandle		array_copy(ArrayHandle *arr)
 {
 	ArrayHandle a2;
 	size_t bytesize;
@@ -2107,19 +2124,41 @@ ArrayHandle		array_copy(ArrayHandle *arr, DebugInfo debug_info)
 	a2=(ArrayHandle)malloc(bytesize);
 	ASSERT_P(a2);
 	memcpy(a2, *arr, bytesize);
-	a2->debug_info=debug_info;
 	return a2;
 }
 void			array_free(ArrayHandle *arr)//can be nullptr
 {
+	if(*arr&&arr[0]->destructor)
+	{
+		for(size_t k=0;k<arr[0]->count;++k)
+			arr[0]->destructor(array_at(arr, k));
+	}
 	free(*arr);
 	*arr=0;
 }
 void			array_clear(ArrayHandle *arr)//can be nullptr
 {
 	if(*arr)
+	{
+		if(arr[0]->destructor)
+		{
+			for(size_t k=0;k<arr[0]->count;++k)
+				arr[0]->destructor(array_at(arr, k));
+		}
 		arr[0]->count=0;
+	}
 }
+void			array_fit(ArrayHandle *arr, size_t pad)//can be nullptr
+{
+	ArrayHandle p2;
+	if(!*arr)
+		return;
+	arr[0]->cap=(arr[0]->count+pad)*arr[0]->esize;
+	p2=(ArrayHandle)realloc(*arr, sizeof(ArrayHeader)+arr[0]->cap);
+	ASSERT_P(p2);
+	*arr=p2;
+}
+
 void*			array_insert(ArrayHandle *arr, size_t idx, void *data, size_t count, size_t rep, size_t pad)
 {
 	size_t start, srcsize, dstsize, movesize;
@@ -2137,16 +2176,28 @@ void*			array_insert(ArrayHandle *arr, size_t idx, void *data, size_t count, siz
 		memset(arr[0]->data+start, 0, dstsize);
 	return arr[0]->data+start;
 }
-void			array_fit(ArrayHandle *arr, size_t pad)//can be nullptr
+void*			array_erase(ArrayHandle *arr, size_t idx, size_t count)
 {
-	ArrayHandle p2;
-	if(!*arr)
-		return;
-	arr[0]->cap=(arr[0]->count+pad)*arr[0]->esize;
-	p2=(ArrayHandle)realloc(*arr, sizeof(ArrayHeader)+arr[0]->cap);
-	ASSERT_P(p2);
-	*arr=p2;
+	size_t k;
+
+	ASSERT_P(*arr);
+	if(arr[0]->count<idx+count)
+	{
+		LOG_ERROR("array_erase() out of bounds: idx=%lld count=%lld size=%lld", (long long)idx, (long long)count, (long long)arr[0]->count);
+		if(arr[0]->count<idx)
+			return 0;
+		count=arr[0]->count-idx;//erase till end of array if OOB
+	}
+	if(arr[0]->destructor)
+	{
+		for(k=0;k<count;++k)
+			arr[0]->destructor(array_at(arr, idx+k));
+	}
+	memmove(arr[0]->data+idx*arr[0]->esize, arr[0]->data+(idx+count)*arr[0]->esize, (arr[0]->count-(idx+count))*arr[0]->esize);
+	arr[0]->count-=count;
+	return arr[0]->data+idx*arr[0]->esize;
 }
+
 size_t			array_size(ArrayHandle const *arr)//can be nullptr
 {
 	if(!arr[0])
@@ -2215,7 +2266,7 @@ int					prof_array_start_idx=0;
 static void			prof_insert(ProfInfo *info)
 {
 	if(!prof)
-		ARRAY_ALLOC(ProfInfo, prof, 0, 1);
+		ARRAY_ALLOC(ProfInfo, prof, 0, 1, 0);
 	ARRAY_APPEND(prof, info, 1, 1, 0);
 }
 void				prof_start(){double elapsed=ELAPSED_FN();}

@@ -90,11 +90,6 @@ float	clampf(float lo, float x, float hi);
 
 //array
 #if 1
-#ifdef DEBUG_INFO_STR
-typedef const char *DebugInfo;
-#else
-typedef size_t DebugInfo;
-#endif
 #ifdef _MSC_VER
 #pragma warning(push)
 #pragma warning(disable:4200)//no default-constructor for struct with zero-length array
@@ -102,14 +97,14 @@ typedef size_t DebugInfo;
 typedef struct ArrayHeaderStruct
 {
 	size_t count, esize, cap;//cap is in bytes
-	DebugInfo debug_info;
+	void (*destructor)(void*);
 	unsigned char data[];
 } ArrayHeader, *ArrayHandle;
 #ifdef _MSC_VER
 #pragma warning(pop)
 #endif
-ArrayHandle		array_construct(const void *src, size_t esize, size_t count, size_t rep, size_t pad, DebugInfo debug_info);
-ArrayHandle		array_copy(ArrayHandle *arr, DebugInfo debug_info);//shallow
+ArrayHandle		array_construct(const void *src, size_t esize, size_t count, size_t rep, size_t pad, void (*destructor)(void*));
+ArrayHandle		array_copy(ArrayHandle *arr);//shallow
 void			array_free(ArrayHandle *arr);
 void			array_clear(ArrayHandle *arr);//keeps allocation
 void			array_fit(ArrayHandle *arr, size_t pad);
@@ -122,37 +117,27 @@ const void*		array_at_const(ArrayHandle const *arr, int idx);
 void*			array_back(ArrayHandle *arr);
 const void*		array_back_const(ArrayHandle const *arr);
 
-#ifdef DEBUG_INFO_STR
-#define			ARRAY_ALLOC(ELEM_TYPE, ARR, COUNT, PAD, DEBUG_INFO)	ARR=array_construct(0, sizeof(ELEM_TYPE), COUNT, 1, PAD, DEBUG_INFO)
-#else
-#define			ARRAY_ALLOC(ELEM_TYPE, ARR, COUNT, PAD)				ARR=array_construct(0, sizeof(ELEM_TYPE), COUNT, 1, PAD, __LINE__)
-#endif
-#define			ARRAY_APPEND(ARR, DATA, COUNT, REP, PAD)			array_insert(&(ARR), array_size(&(ARR)), DATA, COUNT, REP, PAD)
-#define			ARRAY_DATA(ARR)			(ARR)->data
+#define			ARRAY_ALLOC(ELEM_TYPE, ARR, COUNT, PAD, DESTRUCTOR)		ARR=array_construct(0, sizeof(ELEM_TYPE), COUNT, 1, PAD, DESTRUCTOR)
+#define			ARRAY_APPEND(ARR, DATA, COUNT, REP, PAD)				array_insert(&(ARR), (ARR)->count, DATA, COUNT, REP, PAD)
 #define			ARRAY_I(ARR, IDX)		*(int*)array_at(&ARR, IDX)
 #define			ARRAY_U(ARR, IDX)		*(unsigned*)array_at(&ARR, IDX)
 #define			ARRAY_F(ARR, IDX)		*(double*)array_at(&ARR, IDX)
 
 
 //null terminated array
-#ifdef DEBUG_INFO_STR
-#define			ESTR_ALLOC(TYPE, STR, LEN, DEBUG_INFO)				STR=array_construct(0, sizeof(TYPE), 0, 1, LEN+1, DEBUG_INFO)
-#define			ESTR_COPY(TYPE, STR, SRC, LEN, REP, DEBUG_INFO)		STR=array_construct(SRC, sizeof(TYPE), LEN, REP, 1, DEBUG_INFO)
-#else
-#define			ESTR_ALLOC(TYPE, STR, LEN)				STR=array_construct(0, sizeof(TYPE), 0, 1, LEN+1, __LINE__)
-#define			ESTR_COPY(TYPE, STR, SRC, LEN, REP)		STR=array_construct(SRC, sizeof(TYPE), LEN, REP, 1, __LINE__)
-#endif
-#define			STR_APPEND(STR, SRC, LEN, REP)			array_insert(&(STR), array_size(&(STR)), SRC, LEN, REP, 1)
+#define			ESTR_ALLOC(TYPE, STR, LEN)				STR=array_construct(0, sizeof(TYPE), LEN+1, 1, 0, 0)
+#define			ESTR_COPY(TYPE, STR, SRC, LEN, REP)		STR=array_construct(SRC, sizeof(TYPE), LEN, REP, 1, 0)
+#define			STR_APPEND(STR, SRC, LEN, REP)			array_insert(&(STR), (STR)->count, SRC, LEN, REP, 1)
 #define			STR_FIT(STR)							array_fit(&STR, 1)
 #define			ESTR_AT(TYPE, STR, IDX)					*(TYPE*)array_at(&(STR), IDX)
 
-#define			STR_ALLOC(STR, LEN, ...)				ESTR_ALLOC(char, STR, LEN, ##__VA_ARGS__)
-#define			STR_COPY(STR, SRC, LEN, REP, ...)		ESTR_COPY(char, STR, SRC, LEN, REP, ##__VA_ARGS__)
-#define			STR_AT(STR, IDX)						ESTR_AT(char, STR, IDX)
+#define			STR_ALLOC(STR, LEN)				ESTR_ALLOC(char, STR, LEN)
+#define			STR_COPY(STR, SRC, LEN, REP)	ESTR_COPY(char, STR, SRC, LEN, REP)
+#define			STR_AT(STR, IDX)				ESTR_AT(char, STR, IDX)
 
-#define			WSTR_ALLOC(STR, LEN, ...)				ESTR_ALLOC(wchar_t, STR, LEN, ##__VA_ARGS__)
-#define			WSTR_COPY(STR, SRC, LEN, REP, ...)		ESTR_COPY(wchar_t, STR, SRC, LEN, REP, ##__VA_ARGS__)
-#define			WSTR_AT(STR, IDX)						ESTR_AT(wchar_t, STR, IDX)
+#define			WSTR_ALLOC(STR, LEN)			ESTR_ALLOC(wchar_t, STR, LEN)
+#define			WSTR_COPY(STR, SRC, LEN, REP)	ESTR_COPY(wchar_t, STR, SRC, LEN, REP)
+#define			WSTR_AT(STR, IDX)				ESTR_AT(wchar_t, STR, IDX)
 #endif
 
 
