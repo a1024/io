@@ -40,6 +40,7 @@ int io_init(int argc, char **argv)//return false to abort
 	cam_zoomIn(cam, 1);
 	cam_turnMouse(cam, 0, 0, mouse_sensitivity);
 	memcpy(&cam0, &cam, sizeof(cam));
+	return 1;
 }
 void io_resize()
 {
